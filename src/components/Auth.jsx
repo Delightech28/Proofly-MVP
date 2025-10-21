@@ -2,20 +2,20 @@ import { useState } from 'react'
 import Google from "../assets/images/Google.png";
 import X from "../assets/images/X.png";
 function Auth(){
-    const [isLogin, setIsLogin] = useState();
+    const [isLogin, setIsLogin] = useState(true);
     return(
       <div className='min-h-screen flex items-center justify-center bg-[#0F172A] px-4'>
         <div className='w-full max-w-sm bg-white rounded-3xl p-8 shadow-2xl'>
             <div className='mb-6'>
                 {isLogin ? (
                     <>
-                    <h2 className='text-xl font-semibold text-gray-900'>Go ahead and complete your account and setup</h2>
-                    <p className='text-sm text-gray-500 mt-1'>Create your account and simplify your workflow instantly.</p>
+                    <h2 className='text-xl font-semibold text-gray-900'>Welcome back! Sign in to your account</h2>
+                    <p className='text-sm text-gray-500 mt-1'>Sign in to access your account and continue your workflow.</p>
                     </>
                 ) : (
                     <>
                     <h2 className='text-xl font-semibold text-gray-900'>Sign up now to access your personal account</h2>
-                    <p className='text-sm text-gray-500 mt-1'>Sign up to access your account and exclusive features.</p>
+                    <p className='text-sm text-gray-500 mt-1'>Create your account and simplify your workflow instantly.</p>
                     </>
                 )}
             </div>
@@ -64,10 +64,10 @@ function Auth(){
 
               {isLogin && (
             <div className='flex gap-3'>
-                <button className='flex-1 border border-gray-300 rounded-xl py-2 flex items-center justify-center gap-2 hover:bg-gray-50'>
+                <button className='flex-1 border border-gray-300 rounded-xl py-2 flex items-center justify-center gap-2 hover:bg-gray-50 cursor-pointer'>
                     <img src={Google} alt="google" className='w-5 h-5 cursor-pointer'/>Google
                 </button>
-                 <button className='flex-1 border border-gray-300 rounded-xl py-2 flex items-center justify-center gap-2 hover:bg-gray-50'>
+                 <button className='flex-1 border border-gray-300 rounded-xl py-2 flex items-center justify-center gap-2 hover:bg-gray-50 cursor-pointer'>
                     <img src={X} alt="facebook" className='w-5 h-5 cursor-pointer'/>X (Twitter)
                 </button>
             </div>
