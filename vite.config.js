@@ -6,4 +6,8 @@ export default defineConfig({
     react(),
     tailwindcss(),
   ],
+  server: {
+    host: true, // Allow external connections
+    port: 5173, // Default Vite port
+  },
 })

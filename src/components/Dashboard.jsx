@@ -58,7 +58,7 @@ function Dashboard() {
           {/* Right Side Icons */}
           <div className="flex items-center gap-2">
             {/* Points Balance */}
-            <div className="flex items-center gap-2 bg-lime-400 text-black px-3 py-1.5 rounded-full">
+            <div className="flex items-center gap-2 bg-indigo-600 text-white px-3 py-1.5 rounded-full">
               <Star className="w-4 h-4" />
               <span className="text-sm font-semibold">1420 XP</span>
             </div>
@@ -92,20 +92,20 @@ function Dashboard() {
         <div className={`rounded-2xl p-6 transition-colors duration-300 ${isLightMode ? 'bg-white shadow-lg' : 'bg-[#1c1c1c]'}`}>
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xl font-bold">Your Activity Summary</h2>
-            <TrendingUp className="w-6 h-6 text-lime-400" />
+            <TrendingUp className="w-6 h-6 text-indigo-600" />
           </div>
 
           <div className="space-y-4 mb-6">
             {/* Steps Progress */}
             <div className={`flex items-center justify-between p-4 rounded-xl transition-colors duration-300 ${isLightMode ? 'bg-gray-100' : 'bg-[#2a2a2a]'}`}>
               <div className="flex-1">
-                <div className="text-2xl font-bold text-lime-400">6,240</div>
+                <div className="text-2xl font-bold text-indigo-600">6,240</div>
                 <div className={`text-sm transition-colors duration-300 ${isLightMode ? 'text-gray-600' : 'text-gray-400'}`}>Steps Today</div>
                 <div className={`text-xs mt-1 transition-colors duration-300 ${isLightMode ? 'text-gray-500' : 'text-gray-500'}`}>6,240 / 10,000</div>
               </div>
               <div className="w-20">
                 <div className={`w-full rounded-full h-3 transition-colors duration-300 ${isLightMode ? 'bg-gray-200' : 'bg-gray-700'}`}>
-                  <div className="bg-lime-400 h-3 rounded-full" style={{ width: '62%' }}></div>
+                  <div className="bg-indigo-600 h-3 rounded-full" style={{ width: '62%' }}></div>
                 </div>
               </div>
             </div>
@@ -149,7 +149,7 @@ function Dashboard() {
               onClick={() => setActiveTab(tab.id)}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg whitespace-nowrap transition-colors duration-300 ${
                 activeTab === tab.id
-                  ? 'bg-lime-400 text-black'
+                  ? 'bg-indigo-600 text-white'
                   : isLightMode
                   ? 'bg-gray-100 text-gray-700'
                   : 'bg-[#2a2a2a] text-gray-300'
@@ -168,7 +168,7 @@ function Dashboard() {
               key={tab.id}
               className={`p-4 rounded-xl transition-colors duration-300 ${
                 isLightMode ? 'bg-white shadow-sm' : 'bg-[#1c1c1c]'
-              } ${activeTab === tab.id ? 'ring-2 ring-lime-400' : ''}`}
+              } ${activeTab === tab.id ? 'ring-2 ring-indigo-600' : ''}`}
             >
               <div className="flex items-center gap-3 mb-3">
                 <div className={`p-2 rounded-lg ${isLightMode ? 'bg-gray-100' : 'bg-[#2a2a2a]'}`}>
@@ -197,7 +197,7 @@ function Dashboard() {
                     if (tab.id === 'tasks') navigate('/tasks');
                     if (tab.id === 'referrals') navigate('/referrals');
                   }}
-                  className="bg-lime-400 text-black text-xs font-medium px-3 py-1.5 rounded-lg hover:bg-lime-500 transition cursor-pointer"
+                  className="bg-indigo-600 text-white text-xs font-medium px-3 py-1.5 rounded-lg hover:bg-indigo-700 transition cursor-pointer"
                 >
                   {tab.id === 'steps' ? 'Track Now' : 'Do Task'}
                 </button>
@@ -214,7 +214,7 @@ function Dashboard() {
           {activityFeed.length > 4 && (
             <button 
               onClick={() => navigate('/recent-activity')}
-              className="text-lime-400 text-sm font-medium hover:text-lime-500 transition"
+              className="text-indigo-600 text-sm font-medium hover:text-indigo-700 transition"
             >
               View All
             </button>
@@ -230,7 +230,7 @@ function Dashboard() {
               }`}
             >
               <div className={`p-2 rounded-lg ${isLightMode ? 'bg-gray-100' : 'bg-[#2a2a2a]'}`}>
-                <activity.icon className="w-4 h-4 text-lime-400" />
+                <activity.icon className="w-4 h-4 text-indigo-600" />
               </div>
               
               <div className="flex-1">
@@ -239,7 +239,7 @@ function Dashboard() {
               </div>
               
               <div className="text-right">
-                <span className="text-sm font-semibold text-lime-400">{activity.points}</span>
+                <span className="text-sm font-semibold text-indigo-600">{activity.points}</span>
               </div>
             </div>
           ))}
