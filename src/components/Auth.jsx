@@ -4,7 +4,7 @@ import X from "../assets/images/X.png";
 function Auth(){
     const [isLogin, setIsLogin] = useState(true);
     return(
-      <div className='min-h-screen flex items-center justify-center bg-[#0F172A] px-4'>
+      <div className='w-full h-[100dvh] min-h-[100dvh] flex items-center justify-center bg-indigo-600 px-4'>
         <div className='w-full max-w-sm bg-white rounded-3xl p-8 shadow-2xl'>
             <div className='mb-6'>
                 {isLogin ? (
@@ -61,6 +61,13 @@ function Auth(){
                   <div className='h-px flex-1 bg-gray-200'></div>
             </div>
              )}
+             {!isLogin && (
+                <div className='flex items-center gap-2 my-6'>
+                <div className='h-px flex-1 bg-gray-200'></div>
+                <span className='text-xs text-gray-500'>or sign up with</span>
+                  <div className='h-px flex-1 bg-gray-200'></div>
+            </div>
+             )}
 
               {isLogin && (
             <div className='flex gap-3'>
@@ -72,7 +79,16 @@ function Auth(){
                 </button>
             </div>
            )}
-
+             {!isLogin && (
+                <div className='flex gap-3'>
+                    <button className='flex-1 border border-gray-300 rounded-xl py-2 flex items-center justify-center gap-2 hover:bg-gray-50 cursor-pointer'>
+                        <img src={Google} alt="google" className='w-5 h-5 cursor-pointer'/>Google
+                    </button>
+                    <button className='flex-1 border border-gray-300 rounded-xl py-2 flex items-center justify-center gap-2 hover:bg-gray-50 cursor-pointer'>
+                        <img src={X} alt="facebook" className='w-5 h-5 cursor-pointer'/>X (Twitter)
+                    </button>
+                </div>
+             )}
         </div>
       </div>
     );

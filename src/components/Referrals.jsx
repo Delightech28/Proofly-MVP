@@ -104,7 +104,7 @@ function Referrals() {
             <div>
               <h3 className="font-semibold text-sm">Invite a friend</h3>
               <p className={`text-xs transition-colors duration-300 ${isLightMode ? 'text-gray-500' : 'text-gray-400'}`}>
-                Earn +10 Proof Points for each friend who joins
+                Earn +10 XP for each friend who joins
               </p>
             </div>
           </div>

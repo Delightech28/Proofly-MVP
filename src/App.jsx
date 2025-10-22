@@ -12,6 +12,9 @@ import Tasks from "./components/Tasks"
 import Referrals from "./components/Referrals"
 import Search from "./components/Search"
 import Chat from "./components/Chat"
+import UserProfile from "./components/UserProfile"
+import AudioCall from "./components/AudioCall"
+import VideoCall from "./components/VideoCall"
 function App() {
 
   return (
@@ -29,6 +32,9 @@ function App() {
       <Route path="/profile" element={<Profile />} />
       <Route path="/settings" element={<Settings />} />
       <Route path="/edit-profile" element={<EditProfile />} />
+      <Route path="/audio-call" element={<AudioCall />} />
+      <Route path="/video-call" element={<VideoCall />} />
+      <Route path="/user-profile" element={<UserProfile />} />
     </Routes>
   )
 }

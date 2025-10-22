@@ -118,8 +118,8 @@ function Search() {
             onChange={(e) => setSearchQuery(e.target.value)}
             className={`block w-full pl-10 pr-10 py-3 border rounded-xl transition-colors duration-300 ${
               isLightMode 
-                ? 'bg-white border-gray-300 text-gray-900 placeholder-gray-500 focus:border-lime-400 focus:ring-lime-400' 
-                : 'bg-[#1c1c1c] border-gray-600 text-white placeholder-gray-400 focus:border-lime-400 focus:ring-lime-400'
+                ? 'bg-white border-gray-300 text-gray-900 placeholder-gray-500 focus:border-indigo-600 focus:ring-indigo-600' 
+                : 'bg-[#1c1c1c] border-gray-600 text-white placeholder-gray-400 focus:border-indigo-600 focus:ring-indigo-600'
             } focus:outline-none focus:ring-1`}
           />
           {searchQuery && (
@@ -140,7 +140,7 @@ function Search() {
             onClick={() => setActiveFilter('all')}
             className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors duration-300 cursor-pointer ${
               activeFilter === 'all'
-                ? 'bg-lime-400 text-black'
+                ? 'bg-indigo-600 text-black'
                 : (isLightMode ? 'text-gray-600' : 'text-gray-400')
             }`}
           >
@@ -150,7 +150,7 @@ function Search() {
             onClick={() => setActiveFilter('following')}
             className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors duration-300 cursor-pointer ${
               activeFilter === 'following'
-                ? 'bg-lime-400 text-black'
+                ? 'bg-indigo-600 text-black'
                 : (isLightMode ? 'text-gray-600' : 'text-gray-400')
             }`}
           >
@@ -160,7 +160,7 @@ function Search() {
             onClick={() => setActiveFilter('not-following')}
             className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors duration-300 cursor-pointer ${
               activeFilter === 'not-following'
-                ? 'bg-lime-400 text-black'
+                ? 'bg-indigo-600 text-black'
                 : (isLightMode ? 'text-gray-600' : 'text-gray-400')
             }`}
           >
@@ -201,7 +201,7 @@ function Search() {
                   <div className={`w-12 h-12 rounded-full flex items-center justify-center transition-colors duration-300 ${
                     isLightMode ? 'bg-gray-100' : 'bg-[#2a2a2a]'
                   }`}>
-                    <Users className="w-6 h-6 text-lime-400" />
+                    <Users className="w-6 h-6 text-indigo-600" />
                   </div>
                   <div>
                     <h4 className="font-semibold text-sm">{user.name}</h4>
@@ -226,7 +226,7 @@ function Search() {
                   <button className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors duration-300 cursor-pointer ${
                     user.isFollowing
                       ? (isLightMode ? 'bg-gray-200 text-gray-700 hover:bg-gray-300' : 'bg-gray-600 text-gray-300 hover:bg-gray-500')
-                      : 'bg-lime-400 text-black hover:bg-lime-500'
+                      : 'bg-indigo-600 text-black hover:bg-indigo-600'
                   }`}>
                     {user.isFollowing ? 'Following' : 'Follow'}
                   </button>

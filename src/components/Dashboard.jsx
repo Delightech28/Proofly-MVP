@@ -58,9 +58,9 @@ function Dashboard() {
           {/* Right Side Icons */}
           <div className="flex items-center gap-2">
             {/* Points Balance */}
-            <div className="flex items-center gap-2 bg-indigo-600 text-white px-3 py-1.5 rounded-full">
-              <Star className="w-4 h-4" />
-              <span className="text-sm font-semibold">1420 XP</span>
+            <div className="flex items-center gap-2 bg-indigo-600 text-white px-2 py-1 rounded-full sm:px-3 sm:py-1.5">
+              <Star className="w-3 h-3 sm:w-4 sm:h-4" />
+              <span className="text-xs sm:text-sm font-semibold">1420 XP</span>
             </div>
             {/* Notifications */}
             <button 
@@ -177,10 +177,10 @@ function Dashboard() {
                 <div>
                   <h4 className="font-semibold text-sm">{tab.label}</h4>
                   <p className="text-xs text-gray-400">
-                    {tab.id === 'steps' && 'Walk 10,000 steps = +5 Proof Points'}
+                    {tab.id === 'steps' && 'Walk 10,000 steps = +5 XP'}
                     {tab.id === 'tasks' && 'Follow a brand on X'}
                     {tab.id === 'challenges' && '3-day streak of 10k steps'}
-                    {tab.id === 'referrals' && 'Invite a friend = +10 Proof Points'}
+                    {tab.id === 'referrals' && 'Invite a friend = +10 XP'}
                   </p>
                 </div>
               </div>

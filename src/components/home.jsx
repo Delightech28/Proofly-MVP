@@ -1,16 +1,35 @@
 import { Link } from 'react-router-dom'
+import Mascot from '../assets/images/mascot.png'
 
 function Home(){
     return(
-        <div className="bg-[#0F172A] w-full h-screen flex flex-col items-center justify-center relative ">
-            <h1 className="font-extrabold text-8xl text-[#8B5CF6] mt-[-100px]">Proofly</h1>
+        <div className="w-full h-[100dvh] min-h-[100dvh] overflow-hidden bg-indigo-600 flex flex-col items-center justify-between px-6 pt-8 pb-[calc(env(safe-area-inset-bottom)+16px)] font-sans relative">
+            {/* Top spacer (status bar area feel) */}
+            <div className="h-6" />
 
-            <p className="text-white text-2xl font-san absolute bottom-25 text-center left-0 right-0">Earn from every action.</p>
-            <Link to="/auth" className="bg-[#7554A1] absolute bottom-6 text-white h-[50px] w-75 cursor-pointer rounded-md text-center flex items-center justify-center">
-               Get Started
-            </Link>
+            {/* Content */}
+            <div className="w-full flex-1 flex flex-col items-center justify-start gap-6 mt-4">
+                <h1 className="text-white text-4xl md:text-5xl font-extrabold leading-tight tracking-tight text-center max-w-sm">
+                    Earn from every actions
+                </h1>
+
+                {/* Illustration: Mascot image (no background, larger) */}
+                <div className="w-100 h-100 flex items-center justify-center">
+                    <img src={Mascot} alt="Mascot" className="w-full h-full object-contain" />
+                </div>
+            </div>
+
+            {/* Actions */}
+            <div className="w-full flex flex-col items-center">
+                <Link 
+                    to="/auth" 
+                    className="w-full max-w-sm h-12 bg-white text-gray-900 font-semibold rounded-2xl flex items-center justify-center shadow-md"
+                >
+                    Get started
+                </Link>
+            </div>
         </div>
     )
 }
 
-export default Home 
+export default Home

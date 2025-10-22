@@ -26,7 +26,7 @@ function Tasks() {
     {
       id: 2,
       title: "Share your achievement",
-      description: "Share your latest proof points milestone on social media",
+      description: "Share your latest XP milestone on social media",
       reward: 10,
       type: "social",
       icon: Share2,

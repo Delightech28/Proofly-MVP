@@ -21,7 +21,7 @@ function BottomNavigation() {
       path: '/chat',
       icon: MessageSquare,
       label: 'Chat',
-      isActive: location.pathname === '/chat'
+      isActive: location.pathname === '/chat' 
     },
     {
       path: '/profile',
@@ -39,11 +39,11 @@ function BottomNavigation() {
           to={item.path}
           className={`flex flex-col items-center gap-1 transition-colors duration-300 ${
             item.isActive 
-              ? 'text-lime-400' 
+              ? 'text-indigo-600' 
               : 'text-gray-400 hover:text-gray-300'
           }`}
         >
-          <item.icon className={`w-6 h-6 ${item.isActive ? 'text-lime-400' : 'text-gray-400'}`} />
+          <item.icon className={`w-6 h-6 ${item.isActive ? 'text-indigo-600' : 'text-gray-400'}`} />
           <span className="text-xs font-medium">{item.label}</span>
         </Link>
       ))}

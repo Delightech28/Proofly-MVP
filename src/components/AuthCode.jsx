@@ -28,7 +28,7 @@ function AuthCode(){
         }
     };
     return(
-        <div className="min-h-screen flex items-center justify-center bg-[#f3f4fa] px-4">
+        <div className="w-full h-[100dvh] min-h-[100dvh] flex items-center justify-center bg-[#f3f4fa] px-4">
             <div className="bg-white w-full max-w-sm p-8 rounded-3xl shadow-xl text-center">
                 <div className="flex flex-col items-center mb-6">
                     <div className="w-10 h-10 flex item-center justify-center rounded-full bg-indigo-100 mb-2">
