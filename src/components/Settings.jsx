@@ -1,11 +1,37 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Sun, BellOffIcon, LogOut, ChevronRight, Users2Icon, Settings2Icon, LanguagesIcon, HelpCircleIcon, FileTextIcon, GavelIcon, ArrowLeft } from "lucide-react";
 import ProfileImage from "../assets/images/Delight.png";
 import { useTheme } from "../contexts/ThemeContext";
+import useFirebase from '../hooks/useFirebase'
+import { doc, getDoc } from 'firebase/firestore'
+import { db } from '../lib/firebase'
 function Settings(){
     const { isLightMode, toggleTheme } = useTheme();
     const navigate = useNavigate();
+    const { user } = useFirebase()
+    const [username, setUsername] = useState(null)
+
+    useEffect(() => {
+        let mounted = true
+        const loadProfile = async () => {
+            if (!user?.uid) {
+                setUsername(null)
+                return
+            }
+            try {
+                const d = await getDoc(doc(db, 'users', user.uid))
+                if (!mounted) return
+                if (d.exists()) setUsername(d.data()?.username ?? null)
+                else setUsername(null)
+            } catch (e) {
+                console.error('Failed to load username in Settings', e)
+                if (mounted) setUsername(null)
+            }
+        }
+        loadProfile()
+        return () => { mounted = false }
+    }, [user?.uid])
     return(
         <div className={`min-h-screen transition-colors duration-300 ${isLightMode ? 'bg-gray-50 text-gray-900' : 'bg-[#0e0e0e] text-white'}`}>
             {/* {Header} */}
@@ -25,8 +51,8 @@ function Settings(){
                 >
                 <img src={ProfileImage} alt="avatar" className="w-14 h-14 rounded-full"/>
                 <div className="flex-1 text-left">
-                    <h3 className="font-semibold text-sm">Okechukwu Delight</h3>
-                    <p className="text-gray-400 text-xs">@delightcodes</p>
+                    <h3 className="font-semibold text-sm">{user?.displayName || 'Your name'}</h3>
+                    <p className="text-gray-400 text-xs">{username ? `@${username}` : user?.email ? `@${(user.email || '').split('@')[0]}` : '@username'}</p>
                 </div>
                 <ChevronRight className={`w-5 h-5 transition-colors duration-300 ${isLightMode ? 'text-gray-500' : 'text-gray-400'}`}/>
                 </button>

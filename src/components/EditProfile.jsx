@@ -5,15 +5,21 @@ import { useTheme } from "../contexts/ThemeContext";
 import { Wallet, ConnectWallet, WalletDropdown, WalletDropdownDisconnect } from '@coinbase/onchainkit/wallet';
 import { Avatar, Name, Address, Identity } from '@coinbase/onchainkit/identity';
 import ProfileImage from "../assets/images/Delight.png";
+import useFirebase from '../hooks/useFirebase'
+import { doc, getDoc, updateDoc, collection, getDocs, where, query as firestoreQuery } from 'firebase/firestore'
+import { db } from '../lib/firebase'
+import { auth } from '../lib/firebase'
+import { updateProfile } from 'firebase/auth'
+import useToast from '../hooks/useToast'
 
 function EditProfile() {
   const navigate = useNavigate();
   const { isLightMode } = useTheme();
   const [isEditing, setIsEditing] = useState({});
   const [formData, setFormData] = useState({
-    fullName: "Okechukwu Delight",
-    phone: "+234 916 385 4228",
-    username: "@delightcodes"
+    fullName: "",
+    phone: "",
+    username: ""
   });
 
   const [usernameStatus, setUsernameStatus] = useState('idle');
@@ -21,6 +27,10 @@ function EditProfile() {
 
   const [avatarPreviewUrl, setAvatarPreviewUrl] = useState(null);
   const fileInputRef = useRef(null);
+
+  const { user } = useFirebase()
+  const [saving, setSaving] = useState(false)
+  const { showToast } = useToast()
 
   const handleEdit = (field) => {
     setIsEditing({ ...isEditing, [field]: true });
@@ -60,6 +70,28 @@ function EditProfile() {
     };
   }, [avatarPreviewUrl]);
 
+  // Load profile values from Firestore + auth
+  useEffect(() => {
+    let mounted = true
+    const load = async () => {
+      if (!user?.uid) return
+      try {
+        const d = await getDoc(doc(db, 'users', user.uid))
+        if (!mounted) return
+        const data = d.exists() ? d.data() : {}
+        setFormData({
+          fullName: data.displayName || user.displayName || '',
+          phone: data.phone || '',
+          username: data.username ? `@${data.username}` : (user.email ? `@${user.email.split('@')[0]}` : '')
+        })
+      } catch (e) {
+        console.error('Failed to load edit-profile data', e)
+      }
+    }
+    load()
+    return () => { mounted = false }
+  }, [user?.uid, user?.displayName, user?.email])
+
   useEffect(() => {
     if (!isEditing.username) {
       setUsernameStatus('idle');
@@ -73,7 +105,7 @@ function EditProfile() {
     setUsernameStatus('checking');
     setUsernameMessage('');
 
-    const handle = setTimeout(() => {
+  const handle = setTimeout(() => {
       // simple validations
       if (candidate.length < 3) {
         setUsernameStatus('unavailable');
@@ -87,20 +119,39 @@ function EditProfile() {
         return;
       }
 
-      // mock taken list
-      const taken = ['john', 'jane', 'delightcodes'];
-      if (taken.includes(candidate)) {
-        setUsernameStatus('unavailable');
-        setUsernameMessage('Username is already taken');
-        return;
-      }
+      // Check Firestore for existing username (exclude current user's doc)
+      (async () => {
+        try {
+          const q = firestoreQuery(collection(db, 'users'), where('username', '==', candidate))
+          const snap = await getDocs(q)
+          // if no docs found, it's available
+          if (snap.empty) {
+            setUsernameStatus('available')
+            setUsernameMessage('Available')
+            return
+          }
 
-      setUsernameStatus('available');
-      setUsernameMessage('Available');
+          // If only doc found belongs to current user, it's available
+          if (snap.size === 1 && snap.docs[0].id === user?.uid) {
+            setUsernameStatus('available')
+            setUsernameMessage('Available')
+            return
+          }
+
+          // Otherwise it's taken
+          setUsernameStatus('unavailable')
+          setUsernameMessage('Username is already taken')
+        } catch (e) {
+          console.error('Username availability check failed', e)
+          // treat as unavailable on error to be safe
+          setUsernameStatus('unavailable')
+          setUsernameMessage('Could not verify username')
+        }
+      })()
     }, 500);
 
     return () => clearTimeout(handle);
-  }, [formData.username, isEditing.username]);
+  }, [formData.username, isEditing.username, user?.uid]);
   
   return (
     <div className={`min-h-screen transition-colors duration-300 ${isLightMode ? 'bg-gray-50 text-gray-900' : 'bg-[#0e0e0e] text-white'}`}>
@@ -220,7 +271,7 @@ function EditProfile() {
           {/* Email */}
           <div className="flex justify-between items-center py-2">
             <span className={`text-sm transition-colors duration-300 ${isLightMode ? 'text-gray-500' : 'text-gray-400'}`}>Email</span>
-            <span className={`text-sm transition-colors duration-300 ${isLightMode ? 'text-gray-900' : 'text-white'}`}>desolomon07@gmail.com</span>
+            <span className={`text-sm transition-colors duration-300 ${isLightMode ? 'text-gray-900' : 'text-white'}`}>{user?.email || ''}</span>
           </div>
           
           {/* Username */}
@@ -230,13 +281,16 @@ function EditProfile() {
               {isEditing.username ? (
                 <div className="flex items-start gap-2">
                   <div className="flex flex-col">
-                    <input
-                      type="text"
-                      value={formData.username}
-                      onChange={(e) => handleInputChange('username', e.target.value)}
-                      className={`text-sm px-2 py-1 rounded border focus:outline-none transition-colors duration-300 ${isLightMode ? 'bg-white text-gray-900 border-gray-300 focus:border-indigo-600' : 'bg-[#2a2a2a] text-white border-gray-600 focus:border-indigo-600'}`}
-                      autoFocus
-                    />
+                    <div className="flex items-center">
+                      <span className={`inline-flex items-center px-2 ${isLightMode ? 'text-gray-700 bg-gray-100 border border-gray-300' : 'text-gray-300 bg-[#2a2a2a] border border-gray-600'} rounded-l`}>@</span>
+                      <input
+                        type="text"
+                        value={(formData.username || '').replace(/^@/, '')}
+                        onChange={(e) => handleInputChange('username', '@' + e.target.value)}
+                        className={`text-sm px-2 py-1 rounded-r border-l-0 focus:outline-none transition-colors duration-300 ${isLightMode ? 'bg-white text-gray-900 border-gray-300 focus:border-indigo-600' : 'bg-[#2a2a2a] text-white border-gray-600 focus:border-indigo-600'}`}
+                        autoFocus
+                      />
+                    </div>
                     <span className={`mt-1 text-xs ${usernameStatus === 'checking' ? (isLightMode ? 'text-gray-500' : 'text-gray-400') : usernameStatus === 'available' ? 'text-indigo-600' : 'text-red-500'}`}>
                       {usernameStatus === 'idle' ? '' : usernameStatus === 'checking' ? 'Checking availability…' : usernameMessage}
                     </span>
@@ -293,8 +347,58 @@ function EditProfile() {
       {/* Action Buttons */}
       <div className="px-5 space-y-4">
         {/* Save Changes Button */}
-        <button className="w-full bg-indigo-600 text-white font-medium py-3 rounded-xl hover:bg-indigo-700 transition cursor-pointer">
-          Save Changes
+        <button
+          disabled={saving || usernameStatus === 'unavailable' || usernameStatus === 'checking'}
+          onClick={async () => {
+            if (!user?.uid) return
+            // Prevent saving if username is unavailable or still checking
+            if (usernameStatus === 'unavailable') {
+              setUsernameMessage('Please choose a different username')
+              return
+            }
+            if (usernameStatus === 'checking') {
+              setUsernameMessage('Still checking username availability, please wait')
+              return
+            }
+
+            setSaving(true)
+            try {
+              const uref = doc(db, 'users', user.uid)
+
+              // Normalize username: trim leading @, whitespace, and force lowercase
+              const usernameRaw = (formData.username || '').replace(/^@/, '').trim()
+              const normalizedUsername = usernameRaw.toLowerCase()
+
+              const updates = {
+                phone: formData.phone || ''
+              }
+              // only set displayName/username if provided (allow empty phone)
+              if (formData.fullName !== undefined) updates.displayName = formData.fullName || null
+              if (usernameRaw !== undefined) updates.username = normalizedUsername || ''
+
+              await updateDoc(uref, updates)
+              // notify success
+              showToast({ title: 'Profile updated', description: 'Your changes have been saved.', variant: 'success' })
+
+              // Also update Firebase Auth displayName if present
+              if (formData.fullName && auth.currentUser) {
+                try {
+                  await updateProfile(auth.currentUser, { displayName: formData.fullName })
+                } catch (e) {
+                  // Non-fatal: log and continue
+                  console.error('Failed to update Auth displayName', e)
+                }
+              }
+            } catch (e) {
+              console.error('Failed to save profile', e)
+              showToast({ title: 'Save failed', description: e?.message || 'Could not save profile. Try again.', variant: 'error' })
+            } finally {
+              setSaving(false)
+            }
+          }}
+          className={`w-full ${saving || usernameStatus === 'unavailable' || usernameStatus === 'checking' ? 'opacity-60 cursor-not-allowed' : ''} bg-indigo-600 text-white font-medium py-3 rounded-xl hover:bg-indigo-700 transition cursor-pointer`}
+        >
+          {saving ? 'Saving…' : 'Save Changes'}
         </button>
 
         {/* Delete Account Button */}
