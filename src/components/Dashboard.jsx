@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { 
   Bell, 
   Sun, 
@@ -16,6 +16,9 @@ import {
   Star
 } from "lucide-react";
 import ProfileImage from "../assets/images/Delight.png";
+import useFirebase from '../hooks/useFirebase'
+import { doc, getDoc } from 'firebase/firestore'
+import { db } from '../lib/firebase'
 import BottomNavigation from "./BottomNavigation";
 import { useNavigate } from "react-router-dom";
 import { useTheme } from "../contexts/ThemeContext";
@@ -24,7 +27,44 @@ function Dashboard() {
   const navigate = useNavigate();
   const { isLightMode, toggleTheme } = useTheme();
   const [activeTab, setActiveTab] = useState('steps');
-  const [unreadNotifications, setUnreadNotifications] = useState(3); // Mock unread count
+  const [unreadNotifications] = useState(3); // Mock unread count
+  const { user } = useFirebase()
+
+  // Truncate long strings to maxLen characters and add ellipsis when truncated.
+  const truncate = (str, maxLen = 15) => {
+    if (!str && str !== '') return '';
+    const s = String(str);
+    return s.length > maxLen ? s.slice(0, maxLen) + '...' : s;
+  };
+
+  // Load Firestore profile (users/{uid}) to read username and other profile fields
+  const [profile, setProfile] = useState(null)
+  useEffect(() => {
+    let mounted = true
+    const loadProfile = async () => {
+      if (!user?.uid) {
+        setProfile(null)
+        return
+      }
+      try {
+        const d = await getDoc(doc(db, 'users', user.uid))
+        if (!mounted) return
+        if (d.exists()) setProfile(d.data())
+        else setProfile(null)
+      } catch (e) {
+        console.error('Failed to load user profile', e)
+        if (mounted) setProfile(null)
+      }
+    }
+    loadProfile()
+    return () => { mounted = false }
+  }, [user?.uid])
+
+  const handle = profile?.username
+    ? `@${profile.username}`
+    : user?.email
+    ? `@${(user.email || '').split('@')[0]}`
+    : '@username'
 
   const earningTabs = [
     { id: 'steps', icon: Activity, label: 'Steps', color: 'text-green-400' },
@@ -50,17 +90,17 @@ function Dashboard() {
           <div className="flex items-center gap-3">
             <img src={ProfileImage} alt="avatar" className="w-10 h-10 rounded-full" />
             <div>
-              <h3 className="font-semibold text-sm">Okechukwu Delight</h3>
-              <p className="text-xs text-gray-400">@delightcodes</p>
+              <h3 className="font-semibold text-sm">{truncate(user?.displayName || 'Your name', 15)}</h3>
+              <p className="text-xs text-gray-400">{truncate(handle, 15)}</p>
             </div>
           </div>
 
           {/* Right Side Icons */}
           <div className="flex items-center gap-2">
             {/* Points Balance */}
-            <div className="flex items-center gap-2 bg-indigo-600 text-white px-2 py-1 rounded-full sm:px-3 sm:py-1.5">
+              <div className="flex items-center gap-2 bg-indigo-600 text-white px-2 py-1 rounded-full sm:px-3 sm:py-1.5">
               <Star className="w-3 h-3 sm:w-4 sm:h-4" />
-              <span className="text-xs sm:text-sm font-semibold">1420 XP</span>
+              <span className="text-xs sm:text-sm font-semibold">{(profile?.xp ?? 0) + ' XP'}</span>
             </div>
             {/* Notifications */}
             <button 

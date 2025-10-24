@@ -1,14 +1,52 @@
-import { Settings, House, Search, MessageSquare, User, Heart, MessageCircle, Star, 
+import { Settings, House, Search, MessageSquare, User, Heart, MessageCircle, Camera, Star, 
   Activity, ListTodo, Award
 } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
+import React, { useState, useEffect } from 'react'
 import ProfileImage from "../assets/images/Delight.png";
 import PostImage from "../assets/images/download (2).jpg";
 import BottomNavigation from "./BottomNavigation";
 import { useTheme } from "../contexts/ThemeContext";
+import useFirebase from '../hooks/useFirebase'
+import { doc, getDoc } from 'firebase/firestore'
+import { db } from '../lib/firebase'
 function Profile() {
   const { isLightMode } = useTheme();
   const navigate = useNavigate();
+  const { user } = useFirebase();
+  const [followersCount, setFollowersCount] = useState(0)
+  const [followingCount, setFollowingCount] = useState(0)
+
+  useEffect(() => {
+    let mounted = true
+    const loadCounts = async () => {
+      if (!user?.uid) {
+        setFollowersCount(0)
+        setFollowingCount(0)
+        return
+      }
+      try {
+        const d = await getDoc(doc(db, 'users', user.uid))
+        if (!mounted) return
+        if (d.exists()) {
+          const data = d.data()
+          setFollowersCount(data.followersCount ?? 0)
+          setFollowingCount(data.followingCount ?? 0)
+        } else {
+          setFollowersCount(0)
+          setFollowingCount(0)
+        }
+      } catch (e) {
+        console.error('Failed to load profile counts', e)
+        if (mounted) {
+          setFollowersCount(0)
+          setFollowingCount(0)
+        }
+      }
+    }
+    loadCounts()
+    return () => { mounted = false }
+  }, [user?.uid])
   
   return (
     <div className={`min-h-screen transition-colors duration-300 ${isLightMode ? 'bg-gray-50 text-gray-900' : 'bg-[#0e0e0e] text-white'} flex flex-col`}>
@@ -32,10 +70,13 @@ function Profile() {
       <div className="flex flex-col items-center mt-6">
         <div className="relative">
           <img src={ProfileImage} alt="avatar" className="w-20 h-20 rounded-full" />
+          <div className="absolute bottom-0 right-0 bg-indigo-600 p-[3px] rounded-full">
+            <Camera className="w-3 h-3 text-black" />
+          </div>
         </div>
 
-        <h2 className="text-lg font-semibold mt-2">Okechukwu Delight</h2>
-        <p className={`text-sm transition-colors duration-300 ${isLightMode ? 'text-gray-600' : 'text-gray-400'}`}>10.2k followers - 142 following</p>
+  <h2 className="text-lg font-semibold mt-2">{user?.displayName || 'Your name'}</h2>
+  <p className={`text-sm transition-colors duration-300 ${isLightMode ? 'text-gray-600' : 'text-gray-400'}`}>{followersCount} followers - {followingCount} following</p>
       </div>
 
       {/* Tabs */}
@@ -65,7 +106,7 @@ function Profile() {
             <div className="flex items-center gap-3 mb-3">
               <img src={ProfileImage} alt="post-author" className="w-10 h-10 rounded-full" />
               <div>
-                <h3 className="font-semibold text-sm">Okechukwu Delight</h3>
+                <h3 className="font-semibold text-sm">{user?.displayName || 'Your name'}</h3>
                 <p className={`text-xs transition-colors duration-300 ${isLightMode ? 'text-gray-500' : 'text-gray-400'}`}>3h ago</p>
               </div>
             </div>
@@ -89,7 +130,7 @@ function Profile() {
             <div className="flex items-center gap-3 mb-3">
               <img src={ProfileImage} alt="post-author" className="w-10 h-10 rounded-full" />
               <div>
-                <h3 className="font-semibold text-sm">Okechukwu Delight</h3>
+                <h3 className="font-semibold text-sm">{user?.displayName || 'Your name'}</h3>
                 <p className={`text-xs transition-colors duration-300 ${isLightMode ? 'text-gray-500' : 'text-gray-400'}`}>5h ago</p>
               </div>
             </div>
@@ -113,7 +154,7 @@ function Profile() {
             <div className="flex items-center gap-3 mb-3">
               <img src={ProfileImage} alt="post-author" className="w-10 h-10 rounded-full" />
               <div>
-                <h3 className="font-semibold text-sm">Okechukwu Delight</h3>
+                <h3 className="font-semibold text-sm">{user?.displayName || 'Your name'}</h3>
                 <p className={`text-xs transition-colors duration-300 ${isLightMode ? 'text-gray-500' : 'text-gray-400'}`}>1d ago</p>
               </div>
             </div>
@@ -137,7 +178,7 @@ function Profile() {
             <div className="flex items-center gap-3 mb-3">
               <img src={ProfileImage} alt="post-author" className="w-10 h-10 rounded-full" />
               <div>
-                <h3 className="font-semibold text-sm">Okechukwu Delight</h3>
+                <h3 className="font-semibold text-sm">{user?.displayName || 'Your name'}</h3>
                 <p className={`text-xs transition-colors duration-300 ${isLightMode ? 'text-gray-500' : 'text-gray-400'}`}>2d ago</p>
               </div>
             </div>
@@ -161,7 +202,7 @@ function Profile() {
             <div className="flex items-center gap-3 mb-3">
               <img src={ProfileImage} alt="post-author" className="w-10 h-10 rounded-full" />
               <div>
-                <h3 className="font-semibold text-sm">Okechukwu Delight</h3>
+                <h3 className="font-semibold text-sm">{user?.displayName || 'Your name'}</h3>
                 <p className={`text-xs transition-colors duration-300 ${isLightMode ? 'text-gray-500' : 'text-gray-400'}`}>3d ago</p>
               </div>
             </div>
@@ -185,7 +226,7 @@ function Profile() {
             <div className="flex items-center gap-3 mb-3">
               <img src={ProfileImage} alt="post-author" className="w-10 h-10 rounded-full" />
               <div>
-                <h3 className="font-semibold text-sm">Okechukwu Delight</h3>
+                <h3 className="font-semibold text-sm">{user?.displayName || 'Your name'}</h3>
                 <p className={`text-xs transition-colors duration-300 ${isLightMode ? 'text-gray-500' : 'text-gray-400'}`}>4d ago</p>
               </div>
             </div>

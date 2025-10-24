@@ -3,6 +3,8 @@ import { base } from 'viem/chains';
 import { OnchainKitProvider } from '@coinbase/onchainkit';
 import '@coinbase/onchainkit/styles.css';
 import { ThemeProvider } from '../contexts/ThemeContext';
+import { FirebaseProvider } from '../contexts/FirebaseContext';
+import ToastProvider from './Toast'
 
 export function RootProvider({ children }) {
   return (
@@ -19,7 +21,11 @@ export function RootProvider({ children }) {
           },
         }}
       >
-        {children}
+        <FirebaseProvider>
+          <ToastProvider>
+            {children}
+          </ToastProvider>
+        </FirebaseProvider>
       </OnchainKitProvider>
     </ThemeProvider>
   );
