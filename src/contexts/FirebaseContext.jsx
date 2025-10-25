@@ -2,7 +2,7 @@ import React, { createContext, useEffect, useState } from 'react'
 import { auth, db } from '../lib/firebase'
 import sha256Hex from '../lib/sha256'
 import { onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut as fbSignOut, updateProfile } from 'firebase/auth'
-import { doc, setDoc, serverTimestamp } from 'firebase/firestore'
+import { doc, setDoc, serverTimestamp, onSnapshot } from 'firebase/firestore'
 
 // Helper: generate a simple username from name + random suffix
 function generateUsername(firstName = '', lastName = '') {
@@ -50,11 +50,45 @@ export function FirebaseProvider({ children }) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    let unsubProfile = null
     const unsub = onAuthStateChanged(auth, (u) => {
-      setUser(u ? { uid: u.uid, email: u.email, displayName: u.displayName } : null)
       setLoading(false)
+      if (!u) {
+        setUser(null)
+        if (unsubProfile) {
+          unsubProfile()
+          unsubProfile = null
+        }
+        return
+      }
+
+      // Start with auth info
+      setUser({ uid: u.uid, email: u.email, displayName: u.displayName })
+
+      // Subscribe to Firestore profile doc for realtime updates so UI reflects changes immediately
+      try {
+        const userRef = doc(db, 'users', u.uid)
+        unsubProfile = onSnapshot(userRef, (snap) => {
+          if (snap.exists()) {
+            const data = snap.data()
+            // merge auth info with profile doc
+            setUser({ uid: u.uid, email: u.email, displayName: (data.displayName || u.displayName), ...data })
+          } else {
+            // no profile doc yet; keep auth info
+            setUser({ uid: u.uid, email: u.email, displayName: u.displayName })
+          }
+        }, (err) => {
+          console.error('Failed to subscribe to user profile', err)
+        })
+      } catch (e) {
+        console.error('Error setting up profile subscription', e)
+      }
     })
-    return () => unsub()
+
+    return () => {
+      unsub()
+      if (unsubProfile) unsubProfile()
+    }
   }, [])
 
   // signUp: creates an Auth user *and* writes a profile document to Firestore.

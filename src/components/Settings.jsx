@@ -4,12 +4,14 @@ import { Sun, BellOffIcon, LogOut, ChevronRight, Users2Icon, Settings2Icon, Lang
 import ProfileImage from "../assets/images/Delight.png";
 import { useTheme } from "../contexts/ThemeContext";
 import useFirebase from '../hooks/useFirebase'
+import useToast from '../hooks/useToast'
 import { doc, getDoc } from 'firebase/firestore'
 import { db } from '../lib/firebase'
 function Settings(){
     const { isLightMode, toggleTheme } = useTheme();
     const navigate = useNavigate();
-    const { user } = useFirebase()
+    const { user, signOut } = useFirebase()
+    const { showToast } = useToast()
     const [username, setUsername] = useState(null)
 
     useEffect(() => {
@@ -141,7 +143,19 @@ function Settings(){
 
             {/* {Logout Button} */}
             <div className="px-5 mt-8">
-                <button className={`w-full py-3 font-medium rounded-full flex items-center justify-center gap-2 transition-colors duration-300 ${isLightMode ? 'bg-red-50 text-red-600 border border-red-200' : 'bg-[#ffffff] text-red-500'}`}>
+                <button
+                    onClick={async () => {
+                        try {
+                            await signOut()
+                            showToast({ title: 'Signed out', description: 'You have been signed out.', variant: 'info' })
+                            navigate('/auth')
+                        } catch (e) {
+                            console.error('Sign out failed', e)
+                            showToast({ title: 'Sign out failed', description: e?.message || 'Could not sign out. Try again.', variant: 'error' })
+                        }
+                    }}
+                    className={`w-full py-3 font-medium rounded-full flex items-center justify-center gap-2 transition-colors duration-300 ${isLightMode ? 'bg-red-50 text-red-600 border border-red-200' : 'bg-[#ffffff] text-red-500'}`}
+                >
                     <LogOut className="w-5 h-5"/>
                     Log Out
                 </button>
