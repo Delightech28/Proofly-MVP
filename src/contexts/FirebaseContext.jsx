@@ -131,18 +131,15 @@ export function FirebaseProvider({ children }) {
     // choose a username
     const username = generateUsername(profile.firstName, profile.lastName)
 
-    // generate a unique referral code and link for the new user
+    // generate a unique referral code for the new user
+    // NOTE: we intentionally do NOT persist an absolute referralLink (origin-dependent)
+    // to avoid storing localhost origins from dev environments. Build links client-side.
     let referralCode = null
-    let referralLink = null
     try {
       referralCode = await generateUniqueReferralCode(db, 8)
-      // build a simple referral link (adjust path as your app expects)
-      const origin = (typeof window !== 'undefined' && window.location && window.location.origin) ? window.location.origin : ''
-      referralLink = origin ? `${origin}/auth?ref=${referralCode}` : null
     } catch (e) {
-      console.warn('Failed to generate unique referral code; continuing without it', e)
+      console.warn('Failed to generate unique referral code; falling back to random', e)
       referralCode = generateReferralCode(8)
-      referralLink = null
     }
 
     // generate verification code and hash
@@ -157,7 +154,6 @@ export function FirebaseProvider({ children }) {
         email: u.email,
         username,
         referralCode: referralCode || null,
-        referralLink: referralLink || null,
         displayName: profile.displayName || null,
         firstName: profile.firstName || null,
         lastName: profile.lastName || null,

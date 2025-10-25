@@ -17,7 +17,9 @@ function Referrals() {
   const { user } = useFirebase()
 
   const dynamicReferralCode = user?.referralCode ?? ''
-  const dynamicReferralLink = user?.referralLink ?? (dynamicReferralCode && typeof window !== 'undefined' ? `${window.location.origin}/auth?ref=${dynamicReferralCode}` : '')
+  // Always construct referral link client-side from the current origin + referralCode.
+  const origin = (typeof window !== 'undefined' && window.location && window.location.origin) ? window.location.origin : ''
+  const dynamicReferralLink = (dynamicReferralCode && origin) ? `${origin}/auth?ref=${dynamicReferralCode}` : ''
 
   const [invitedFriends, setInvitedFriends] = useState([])
 
