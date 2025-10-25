@@ -1,6 +1,6 @@
 import { Camera, ArrowLeft, Edit3, Check, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import { useTheme } from "../contexts/ThemeContext";
 import { Wallet, ConnectWallet, WalletDropdown, WalletDropdownDisconnect } from '@coinbase/onchainkit/wallet';
 import { Avatar, Name, Address, Identity } from '@coinbase/onchainkit/identity';
@@ -21,6 +21,8 @@ function EditProfile() {
     phone: "",
     username: ""
   });
+  // keep a copy of the initial values so we can detect if the user changed anything
+  const [initialData, setInitialData] = useState(null)
 
   const [usernameStatus, setUsernameStatus] = useState('idle');
   const [usernameMessage, setUsernameMessage] = useState('');
@@ -31,6 +33,16 @@ function EditProfile() {
   const { user } = useFirebase()
   const [saving, setSaving] = useState(false)
   const { showToast } = useToast()
+
+  // whether any editable field (fullName, phone, username) has changed
+  const isDirty = useMemo(() => {
+    if (!initialData) return false
+    return (
+      (formData.fullName || '') !== (initialData.fullName || '') ||
+      (formData.phone || '') !== (initialData.phone || '') ||
+      ((formData.username || '').replace(/^@/, '')) !== ((initialData.username || '').replace(/^@/, ''))
+    )
+  }, [formData, initialData])
 
   const handleEdit = (field) => {
     setIsEditing({ ...isEditing, [field]: true });
@@ -84,6 +96,12 @@ function EditProfile() {
           phone: data.phone || '',
           username: data.username ? `@${data.username}` : (user.email ? `@${user.email.split('@')[0]}` : '')
         })
+        // initialize initialData for dirty-checking
+        setInitialData({
+          fullName: data.displayName || user.displayName || '',
+          phone: data.phone || '',
+          username: data.username ? `@${data.username}` : (user.email ? `@${user.email.split('@')[0]}` : '')
+        })
       } catch (e) {
         console.error('Failed to load edit-profile data', e)
       }
@@ -91,6 +109,72 @@ function EditProfile() {
     load()
     return () => { mounted = false }
   }, [user?.uid, user?.displayName, user?.email])
+
+  // Auto-save connected wallet address: detect current accounts and listen for changes
+  useEffect(() => {
+    if (!user?.uid) return
+    let mounted = true
+
+    const saveWalletAddress = async (addr) => {
+      if (!addr) return
+      try {
+        // Only update if different from what's in the profile
+        if (addr === user?.walletAddress) return
+        const uref = doc(db, 'users', user.uid)
+        await updateDoc(uref, { walletAddress: addr })
+        if (!mounted) return
+        showToast({ title: 'Wallet saved', description: 'Connected wallet address saved to your profile.', variant: 'success' })
+      } catch (e) {
+        console.error('Failed to save wallet address', e)
+        // non-fatal; show a toast optionally
+        if (mounted) showToast({ title: 'Wallet save failed', description: e?.message || 'Could not save wallet address.', variant: 'error' })
+      }
+    }
+
+    const detectAndSave = async () => {
+      try {
+        const win = window
+        if (win?.ethereum && typeof win.ethereum.request === 'function') {
+          const accounts = await win.ethereum.request({ method: 'eth_accounts' })
+          if (accounts && accounts.length) await saveWalletAddress(accounts[0])
+        } else if (win?.web3 && win.web3?.eth && typeof win.web3.eth.getAccounts === 'function') {
+          const accounts = await new Promise((res, rej) => win.web3.eth.getAccounts((err, acc) => err ? rej(err) : res(acc)))
+          if (accounts && accounts.length) await saveWalletAddress(accounts[0])
+        }
+      } catch (e) {
+        console.warn('Could not detect wallet on load', e)
+      }
+    }
+
+    detectAndSave()
+
+    const accountsChangedHandler = (accounts) => {
+      // accounts may be an array or a single string depending on provider
+      const addr = Array.isArray(accounts) ? accounts[0] : accounts
+      if (addr) saveWalletAddress(addr)
+    }
+
+    try {
+      const win = window
+      if (win?.ethereum && typeof win.ethereum.on === 'function') {
+        win.ethereum.on('accountsChanged', accountsChangedHandler)
+      }
+    } catch (e) {
+      console.warn('Failed to attach accountsChanged listener', e)
+    }
+
+    return () => {
+      mounted = false
+      try {
+        const win = window
+        if (win?.ethereum && typeof win.ethereum.removeListener === 'function') {
+          win.ethereum.removeListener('accountsChanged', accountsChangedHandler)
+        }
+      } catch {
+        // ignore
+      }
+    }
+  }, [user?.uid, user?.walletAddress, showToast])
 
   useEffect(() => {
     if (!isEditing.username) {
@@ -347,8 +431,11 @@ function EditProfile() {
       {/* Action Buttons */}
       <div className="px-5 space-y-4">
         {/* Save Changes Button */}
+        {
+          // compute save button disabled state to keep markup readable
+        }
         <button
-          disabled={saving || usernameStatus === 'unavailable' || usernameStatus === 'checking'}
+          disabled={(() => (saving || usernameStatus === 'unavailable' || usernameStatus === 'checking' || !isDirty))()}
           onClick={async () => {
             if (!user?.uid) return
             // Prevent saving if username is unavailable or still checking
@@ -369,12 +456,31 @@ function EditProfile() {
               const usernameRaw = (formData.username || '').replace(/^@/, '').trim()
               const normalizedUsername = usernameRaw.toLowerCase()
 
+              // Attempt to detect a connected web3 wallet address (common providers expose window.ethereum)
+              let walletAddress = null
+              try {
+                const win = window
+                if (win?.ethereum && typeof win.ethereum.request === 'function') {
+                  // eth_accounts does not prompt; returns connected addresses
+                  const accounts = await win.ethereum.request({ method: 'eth_accounts' })
+                  if (accounts && accounts.length) walletAddress = accounts[0]
+                  else if (win.ethereum.selectedAddress) walletAddress = win.ethereum.selectedAddress
+                } else if (win?.web3 && win.web3?.eth && typeof win.web3.eth.getAccounts === 'function') {
+                  const accounts = await new Promise((res, rej) => win.web3.eth.getAccounts((err, acc) => err ? rej(err) : res(acc)))
+                  if (accounts && accounts.length) walletAddress = accounts[0]
+                }
+              } catch (e) {
+                // Non-fatal: simply don't include wallet address if detection fails
+                console.warn('Could not read connected wallet address', e)
+              }
+
               const updates = {
                 phone: formData.phone || ''
               }
               // only set displayName/username if provided (allow empty phone)
               if (formData.fullName !== undefined) updates.displayName = formData.fullName || null
               if (usernameRaw !== undefined) updates.username = normalizedUsername || ''
+              if (walletAddress) updates.walletAddress = walletAddress
 
               await updateDoc(uref, updates)
               // notify success
@@ -396,7 +502,7 @@ function EditProfile() {
               setSaving(false)
             }
           }}
-          className={`w-full ${saving || usernameStatus === 'unavailable' || usernameStatus === 'checking' ? 'opacity-60 cursor-not-allowed' : ''} bg-indigo-600 text-white font-medium py-3 rounded-xl hover:bg-indigo-700 transition cursor-pointer`}
+          className={`w-full ${saving || usernameStatus === 'unavailable' || usernameStatus === 'checking' || !isDirty ? 'cursor-not-allowed' : 'cursor-pointer'} ${saving || usernameStatus === 'unavailable' || usernameStatus === 'checking' || !isDirty ? (isLightMode ? 'bg-indigo-200 text-white' : 'bg-indigo-400 text-white') : 'bg-indigo-600 text-white hover:bg-indigo-700'} font-medium py-3 rounded-xl transition`}
         >
           {saving ? 'Saving…' : 'Save Changes'}
         </button>

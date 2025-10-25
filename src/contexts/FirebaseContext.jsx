@@ -2,7 +2,7 @@ import React, { createContext, useEffect, useState } from 'react'
 import { auth, db } from '../lib/firebase'
 import sha256Hex from '../lib/sha256'
 import { onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut as fbSignOut, updateProfile } from 'firebase/auth'
-import { doc, setDoc, serverTimestamp, onSnapshot } from 'firebase/firestore'
+import { doc, setDoc, serverTimestamp, onSnapshot, collection, query, where, getDocs, runTransaction, increment } from 'firebase/firestore'
 
 // Helper: generate a simple username from name + random suffix
 function generateUsername(firstName = '', lastName = '') {
@@ -17,6 +17,26 @@ function generateUsername(firstName = '', lastName = '') {
 // Helper: generate a 6-digit numeric verification code
 function generateVerificationCode() {
   return Math.floor(100000 + Math.random() * 900000).toString()
+}
+
+// Helper: generate a short referral code (alphanumeric)
+function generateReferralCode(length = 8) {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
+  let out = ''
+  for (let i = 0; i < length; i++) out += chars[Math.floor(Math.random() * chars.length)]
+  return out
+}
+
+// Ensure referral code is unique (small number of retries)
+async function generateUniqueReferralCode(db, length = 8, maxTries = 6) {
+  for (let i = 0; i < maxTries; i++) {
+    const candidate = generateReferralCode(length)
+    const q = query(collection(db, 'users'), where('referralCode', '==', candidate))
+    const snap = await getDocs(q)
+    if (snap.empty) return candidate
+  }
+  // fallback to timestamp + random if collisions keep happening
+  return `${Date.now().toString(36)}${Math.floor(Math.random() * 1000)}`
 }
 
 
@@ -111,6 +131,20 @@ export function FirebaseProvider({ children }) {
     // choose a username
     const username = generateUsername(profile.firstName, profile.lastName)
 
+    // generate a unique referral code and link for the new user
+    let referralCode = null
+    let referralLink = null
+    try {
+      referralCode = await generateUniqueReferralCode(db, 8)
+      // build a simple referral link (adjust path as your app expects)
+      const origin = (typeof window !== 'undefined' && window.location && window.location.origin) ? window.location.origin : ''
+      referralLink = origin ? `${origin}/auth?ref=${referralCode}` : null
+    } catch (e) {
+      console.warn('Failed to generate unique referral code; continuing without it', e)
+      referralCode = generateReferralCode(8)
+      referralLink = null
+    }
+
     // generate verification code and hash
     const plainCode = generateVerificationCode()
     const codeHash = await sha256Hex(plainCode)
@@ -122,6 +156,8 @@ export function FirebaseProvider({ children }) {
         uid: u.uid,
         email: u.email,
         username,
+        referralCode: referralCode || null,
+        referralLink: referralLink || null,
         displayName: profile.displayName || null,
         firstName: profile.firstName || null,
         lastName: profile.lastName || null,
@@ -155,6 +191,53 @@ export function FirebaseProvider({ children }) {
     } catch (e) {
       // do not fail the signup if email sending fails, but log it so you can debug
       console.error('Failed to send verification email', e)
+    }
+
+    // If an incoming referral code was provided during signup, attempt to redeem it.
+    // This is currently implemented client-side as a Firestore transaction as a stopgap.
+    // Production: move this logic to a trusted Cloud Function to prevent abuse.
+    if (profile?.referralCode) {
+      try {
+        const refQ = query(collection(db, 'users'), where('referralCode', '==', profile.referralCode))
+        const refSnap = await getDocs(refQ)
+        if (!refSnap.empty) {
+          const refDoc = refSnap.docs[0]
+          const refUid = refDoc.id
+          // don't allow self-referral
+          if (refUid !== u.uid) {
+            const refUserRef = doc(db, 'users', refUid)
+            const newUserRef = doc(db, 'users', u.uid)
+            await runTransaction(db, async (tx) => {
+              const r = await tx.get(refUserRef)
+              const n = await tx.get(newUserRef)
+              if (!r.exists()) throw new Error('Referrer user missing')
+              if (!n.exists()) throw new Error('Referred user profile missing')
+              // award XP: +20 to referrer, +10 to referred user; increment referralsCount
+              tx.update(refUserRef, {
+                referralsCount: increment(1),
+                referralsXp: increment(20),
+                xp: increment(20)
+              })
+              tx.update(newUserRef, {
+                  referralsXp: increment(10),
+                  xp: increment(10),
+                  referredBy: refUid,
+                  referredAt: serverTimestamp()
+              })
+              // create a small audit record for traceability
+              const auditRef = doc(collection(db, 'referrals'))
+              tx.set(auditRef, {
+                referrerUid: refUid,
+                referredUid: u.uid,
+                code: profile.referralCode,
+                createdAt: serverTimestamp()
+              })
+            })
+          }
+        }
+      } catch (e) {
+        console.error('Referral processing failed', e)
+      }
     }
 
     return cred

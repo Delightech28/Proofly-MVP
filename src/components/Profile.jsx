@@ -56,13 +56,14 @@ function Profile() {
         <div className="flex items-center gap-4">
            <div className={`px-2 py-1.5 border rounded-full flex gap-1 cursor-pointer transition-colors duration-300 ${isLightMode ? 'border-gray-300' : 'border-gray-500'}`}>
            <Star className={`w-5 h-5 transition-colors duration-300 ${isLightMode ? 'text-gray-600' : 'text-gray-400'}`} /> 
-          <p className={`text-sm transition-colors duration-300 ${isLightMode ? 'text-gray-600' : 'text-gray-400'}`}>10.2k XP</p>
+          <p className={`text-sm transition-colors duration-300 ${isLightMode ? 'text-gray-600' : 'text-gray-400'}`}>{(user?.xp ?? 0) + ' XP'}</p>
           </div>
           <div className={`p-2 border rounded-full cursor-pointer transition-colors duration-300 ${isLightMode ? 'border-gray-300' : 'border-gray-500'}`}>
-        <Link to="/settings">
-        <Settings className={`w-5 h-5 transition-colors duration-300 ${isLightMode ? 'text-gray-600' : 'text-gray-300'}`} />
-        </Link>
+            <Link to="/settings">
+              <Settings className={`w-5 h-5 transition-colors duration-300 ${isLightMode ? 'text-gray-600' : 'text-gray-300'}`} />
+            </Link>
           </div>
+          
         </div>
       </div>
 

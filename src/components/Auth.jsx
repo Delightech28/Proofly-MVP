@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import useFirebase from '../hooks/useFirebase'
 import Google from "../assets/images/Google.png";
 import X from "../assets/images/X.png";
@@ -16,7 +16,12 @@ function Auth(){
     const { signUp, signIn } = useFirebase()
     const { showToast } = useToast()
     const navigate = useNavigate()
+    const location = useLocation()
     const [isSubmitting, setIsSubmitting] = useState(false)
+
+    // capture referral code from URL if present (e.g. /auth?ref=CODE)
+    const params = new URLSearchParams(location.search)
+    const incomingReferral = params.get('ref') || params.get('referral') || null
 
     async function handleSubmit(e){
     e.preventDefault()
@@ -33,7 +38,7 @@ function Auth(){
                                     return
                             }
                             const displayName = `${firstName} ${lastName}`.trim()
-                            await signUp(email, password, { displayName, firstName, lastName })
+                            await signUp(email, password, { displayName, firstName, lastName, referralCode: incomingReferral })
                             showToast({ title: 'Account created', description: 'Your account was created successfully.', variant: 'success' })
                             // redirect user to verification page after signup
                             navigate('/verify')

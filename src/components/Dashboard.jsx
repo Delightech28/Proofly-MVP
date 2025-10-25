@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import ProfileImage from "../assets/images/Delight.png";
 import useFirebase from '../hooks/useFirebase'
-import { doc, getDoc } from 'firebase/firestore'
+import { doc, getDoc, updateDoc } from 'firebase/firestore'
 import { db } from '../lib/firebase'
 import BottomNavigation from "./BottomNavigation";
 import { useNavigate } from "react-router-dom";
@@ -49,8 +49,18 @@ function Dashboard() {
       try {
         const d = await getDoc(doc(db, 'users', user.uid))
         if (!mounted) return
-        if (d.exists()) setProfile(d.data())
-        else setProfile(null)
+        if (d.exists()) {
+          const data = d.data()
+          setProfile(data)
+          // Ensure referralsCount exists in the document; if missing, initialize to 0
+          if (data.referralsCount === undefined) {
+            try {
+              await updateDoc(doc(db, 'users', user.uid), { referralsCount: 0 })
+            } catch (err) {
+              console.error('Failed to initialize referralsCount', err)
+            }
+          }
+        } else setProfile(null)
       } catch (e) {
         console.error('Failed to load user profile', e)
         if (mounted) setProfile(null)
@@ -78,7 +88,7 @@ function Dashboard() {
     { type: 'task', message: 'Task completed: Followed brand on X', points: '+2 points', time: '4 hours ago', icon: CheckCircle },
     { type: 'badge', message: 'New badge unlocked: Consistency Hero', points: '🏅', time: '1 day ago', icon: Trophy },
     { type: 'challenge', message: 'Challenge completed: 3-day streak', points: '+15 points', time: '2 days ago', icon: Target },
-    { type: 'referral', message: 'Friend joined: @johndoe', points: '+10 points', time: '3 days ago', icon: Users }
+    { type: 'referral', message: 'Friend joined: @johndoe', points: '+20 points', time: '3 days ago', icon: Users }
   ];
 
   return (
@@ -220,7 +230,7 @@ function Dashboard() {
                     {tab.id === 'steps' && 'Walk 10,000 steps = +5 XP'}
                     {tab.id === 'tasks' && 'Follow a brand on X'}
                     {tab.id === 'challenges' && '3-day streak of 10k steps'}
-                    {tab.id === 'referrals' && 'Invite a friend = +10 XP'}
+                    {tab.id === 'referrals' && 'Invite a friend = +20 XP'}
                   </p>
                 </div>
               </div>
@@ -230,7 +240,7 @@ function Dashboard() {
                   {tab.id === 'steps' && 'Progress: 62%'}
                   {tab.id === 'tasks' && 'Completed: 3/5'}
                   {tab.id === 'challenges' && 'Active: 1'}
-                  {tab.id === 'referrals' && 'Invited: 2'}
+                  {tab.id === 'referrals' && `Invited: ${profile?.referralsCount ?? 0}`}
                 </div>
                 <button 
                   onClick={() => {
