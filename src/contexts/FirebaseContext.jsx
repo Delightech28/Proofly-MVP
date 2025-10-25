@@ -111,6 +111,66 @@ export function FirebaseProvider({ children }) {
     }
   }, [])
 
+  // Helper to process a referral code for a newly created user.
+  // Returns true if processed, false if skipped or failed.
+  const processReferralCode = async (code, newUid) => {
+    if (!code) return false
+    try {
+      const refQ = query(collection(db, 'users'), where('referralCode', '==', code))
+      const refSnap = await getDocs(refQ)
+      if (refSnap.empty) {
+        console.info('Referral code not found:', code)
+        return false
+      }
+      const refDoc = refSnap.docs[0]
+      const refUid = refDoc.id
+      if (refUid === newUid) {
+        console.info('Referral code belongs to same user; skipping')
+        return false
+      }
+
+      const refUserRef = doc(db, 'users', refUid)
+      const newUserRef = doc(db, 'users', newUid)
+
+      await runTransaction(db, async (tx) => {
+        const r = await tx.get(refUserRef)
+        const n = await tx.get(newUserRef)
+        if (!r.exists()) throw new Error('Referrer user missing')
+        if (!n.exists()) throw new Error('New user missing')
+        const nData = n.data()
+        // avoid double-awarding if referredBy already set
+        if (nData && nData.referredBy) {
+          console.info('New user already has referredBy; skipping referral processing')
+          return
+        }
+
+        tx.update(refUserRef, {
+          referralsCount: increment(1),
+          referralsXp: increment(20),
+          xp: increment(20)
+        })
+        tx.update(newUserRef, {
+          referralsXp: increment(10),
+          xp: increment(10),
+          referredBy: refUid,
+          referredAt: serverTimestamp()
+        })
+        const auditRef = doc(collection(db, 'referrals'))
+        tx.set(auditRef, {
+          referrerUid: refUid,
+          referredUid: newUid,
+          code,
+          createdAt: serverTimestamp()
+        })
+      })
+      console.info('Referral processed for new user', newUid, 'referrer', refUid)
+      return true
+    } catch (e) {
+      console.error('Referral processing failed', e)
+      return false
+    }
+  }
+
   // signUp: creates an Auth user *and* writes a profile document to Firestore.
   // Also generates a username and verification code, stores a hashed code and expiry,
   // and attempts to send the code via EmailJS (client-side REST API).
@@ -189,48 +249,12 @@ export function FirebaseProvider({ children }) {
       console.error('Failed to send verification email', e)
     }
 
-    // If an incoming referral code was provided during signup, attempt to redeem it.
-    // This is currently implemented client-side as a Firestore transaction as a stopgap.
-    // Production: move this logic to a trusted Cloud Function to prevent abuse.
+    // If an incoming referral code was provided during signup, attempt to redeem it
+    // using a dedicated helper that includes idempotency checks.
     if (profile?.referralCode) {
       try {
-        const refQ = query(collection(db, 'users'), where('referralCode', '==', profile.referralCode))
-        const refSnap = await getDocs(refQ)
-        if (!refSnap.empty) {
-          const refDoc = refSnap.docs[0]
-          const refUid = refDoc.id
-          // don't allow self-referral
-          if (refUid !== u.uid) {
-            const refUserRef = doc(db, 'users', refUid)
-            const newUserRef = doc(db, 'users', u.uid)
-            await runTransaction(db, async (tx) => {
-              const r = await tx.get(refUserRef)
-              const n = await tx.get(newUserRef)
-              if (!r.exists()) throw new Error('Referrer user missing')
-              if (!n.exists()) throw new Error('Referred user profile missing')
-              // award XP: +20 to referrer, +10 to referred user; increment referralsCount
-              tx.update(refUserRef, {
-                referralsCount: increment(1),
-                referralsXp: increment(20),
-                xp: increment(20)
-              })
-              tx.update(newUserRef, {
-                  referralsXp: increment(10),
-                  xp: increment(10),
-                  referredBy: refUid,
-                  referredAt: serverTimestamp()
-              })
-              // create a small audit record for traceability
-              const auditRef = doc(collection(db, 'referrals'))
-              tx.set(auditRef, {
-                referrerUid: refUid,
-                referredUid: u.uid,
-                code: profile.referralCode,
-                createdAt: serverTimestamp()
-              })
-            })
-          }
-        }
+        const ok = await processReferralCode(profile.referralCode, u.uid)
+        if (!ok) console.info('Referral code present but not processed:', profile.referralCode)
       } catch (e) {
         console.error('Referral processing failed', e)
       }
