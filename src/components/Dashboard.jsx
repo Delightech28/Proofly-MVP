@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import ProfileImage from "../assets/images/Delight.png";
 import useFirebase from '../hooks/useFirebase'
-import { doc, getDoc, updateDoc } from 'firebase/firestore'
+import { doc, getDoc } from 'firebase/firestore'
 import { db } from '../lib/firebase'
 import BottomNavigation from "./BottomNavigation";
 import { useNavigate } from "react-router-dom";
@@ -52,14 +52,9 @@ function Dashboard() {
         if (d.exists()) {
           const data = d.data()
           setProfile(data)
-          // Ensure referralsCount exists in the document; if missing, initialize to 0
-          if (data.referralsCount === undefined) {
-            try {
-              await updateDoc(doc(db, 'users', user.uid), { referralsCount: 0 })
-            } catch (err) {
-              console.error('Failed to initialize referralsCount', err)
-            }
-          }
+          // Do not attempt to initialize protected referral fields from the client.
+          // Firestore rules restrict client writes to these counters; show 0 in the UI
+          // when the fields are missing and let server-side processes initialize them.
         } else setProfile(null)
       } catch (e) {
         console.error('Failed to load user profile', e)

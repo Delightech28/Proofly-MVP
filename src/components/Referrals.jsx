@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { useTheme } from "../contexts/ThemeContext";
 import BottomNavigation from "./BottomNavigation";
 import useFirebase from '../hooks/useFirebase'
-import { doc, getDoc, updateDoc, collection, query, where, orderBy, onSnapshot } from 'firebase/firestore'
+import { doc, getDoc, collection, query, where, orderBy, onSnapshot } from 'firebase/firestore'
 import { db } from '../lib/firebase'
 
 function Referrals() {
@@ -43,32 +43,24 @@ function Referrals() {
     return `${years}y`
   }
 
-  // subscribe to users referred by current user
+  // Load referred users from the user's referredUids array
   useEffect(() => {
-    if (!user?.uid) {
+    if (!user?.uid || !user?.referredUids || user.referredUids.length === 0) {
       setInvitedFriends([])
       return
     }
-    const q = query(collection(db, 'users'), where('referredBy', '==', user.uid), orderBy('createdAt', 'desc'))
-    const unsub = onSnapshot(q, (snap) => {
-      const arr = snap.docs.map(d => {
-        const data = d.data()
-        const createdAt = data.createdAt && data.createdAt.toDate ? data.createdAt.toDate() : (data.createdAt ? new Date(data.createdAt) : null)
-        return {
-          id: d.id,
-          displayName: data.displayName || `${(data.firstName || '')} ${(data.lastName || '')}`.trim() || data.email?.split('@')[0] || 'User',
-          username: data.username ? `@${data.username}` : '',
-          joinedAgo: timeAgo(createdAt),
-          pointsEarned: 10 // default per referral; adjust if you track per-invite points elsewhere
-        }
-      })
-      setInvitedFriends(arr)
-    }, (err) => {
-      console.error('Failed to load invited friends', err)
-      setInvitedFriends([])
-    })
-    return () => unsub()
-  }, [user?.uid])
+
+    // For now, show basic info without querying individual user docs
+    // This avoids the permission issue while still showing referral count
+    const arr = user.referredUids.map((uid, index) => ({
+      id: uid,
+      displayName: `Referred User ${index + 1}`,
+      username: '',
+      joinedAgo: 'Recently',
+      pointsEarned: 10
+    }))
+    setInvitedFriends(arr)
+  }, [user?.uid, user?.referredUids])
 
   const [referralsCount, setReferralsCount] = useState(null)
   const [referralsXp, setReferralsXp] = useState(null)
@@ -94,16 +86,11 @@ function Referrals() {
           setReferralsCount(count)
           setReferralsXp(xp)
 
-          // initialize missing fields in Firestore
-          const updates = {}
-          if (data.referralsCount === undefined) updates.referralsCount = 0
-          if (Object.keys(updates).length) {
-            try {
-              await updateDoc(doc(db, 'users', user.uid), updates)
-            } catch (e) {
-              console.error('Failed to initialize referrals fields', e)
-            }
-          }
+          // Do NOT initialize protected referral fields from the client.
+          // Firestore security rules prevent clients from writing protected
+          // counters (xp/referralsCount/etc.). Leave initialization to a
+          // trusted server-side process or admin tooling. The UI will
+          // display 0 when the fields are missing.
         } else {
           // no user doc; set defaults locally
           setReferralsCount(0)

@@ -1,27 +1,52 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
+import { collection, query, where, getDocs } from 'firebase/firestore'
+import { db } from '../lib/firebase'
 import useFirebase from '../hooks/useFirebase'
 import Google from "../assets/images/Google.png";
 import X from "../assets/images/X.png";
 import useToast from '../hooks/useToast'
 
 function Auth(){
-    const [isLogin, setIsLogin] = useState(true);
+    const { signUp, signIn } = useFirebase()
+    const { showToast } = useToast()
+    const navigate = useNavigate()
+    const location = useLocation()
+    
+    // capture referral code from URL if present (e.g. /auth?ref=CODE)
+    const params = new URLSearchParams(location.search)
+    const incomingReferral = params.get('ref') || params.get('referral') || null
+
+    // default to signup when a referral code is present
+    const [isLogin, setIsLogin] = useState(!incomingReferral);
     const [firstName, setFirstName] = useState('')
     const [lastName, setLastName] = useState('')
     const [email, setEmail] = useState('')
     const [password, setPassword] = useState('')
     const [confirm, setConfirm] = useState('')
-
-    const { signUp, signIn } = useFirebase()
-    const { showToast } = useToast()
-    const navigate = useNavigate()
-    const location = useLocation()
     const [isSubmitting, setIsSubmitting] = useState(false)
 
-    // capture referral code from URL if present (e.g. /auth?ref=CODE)
-    const params = new URLSearchParams(location.search)
-    const incomingReferral = params.get('ref') || params.get('referral') || null
+    const [referrerName, setReferrerName] = useState(null)
+
+    // try to resolve the referral code to a display name (best-effort)
+    useEffect(() => {
+        let mounted = true
+        const resolveReferrer = async () => {
+            if (!incomingReferral) return
+            try {
+                // Skip querying users collection due to permission restrictions
+                // Just show the referral code for now
+                console.debug('Referral code resolution disabled due to security rules')
+                setReferrerName(null)
+            } catch (e) {
+                // likely permission error; fall back to showing the raw code
+                console.debug('Could not resolve referral code locally', e)
+                setReferrerName(null)
+            }
+        }
+        resolveReferrer()
+        return () => { mounted = false }
+    }, [incomingReferral])
 
     async function handleSubmit(e){
     e.preventDefault()
@@ -109,6 +134,17 @@ function Auth(){
                     <button type='submit' disabled={isSubmitting} className={`w-full bg-indigo-600 text-white font-semibold py-3 rounded-xl ${isSubmitting ? 'opacity-60 cursor-not-allowed' : 'hover:opacity-90 cursor-pointer'}`}>
                         {isSubmitting ? (isLogin ? 'Signing in...' : 'Registering...') : (isLogin ? 'Login' : 'Register')}
                     </button>
+
+                    {/* Show referrer info when signing up via a referral link */}
+                    {!isLogin && incomingReferral && (
+                        <div className='text-center text-sm text-gray-500 mt-2'>
+                            {referrerName ? (
+                                <span>Referred by <strong>{referrerName}</strong></span>
+                            ) : (
+                                <span>Signing up with referral code <strong>{incomingReferral}</strong></span>
+                            )}
+                        </div>
+                    )}
 
                     {isLogin && (
                         <div className='flex justify-between text-sm text-gray-600'>

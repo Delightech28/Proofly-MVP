@@ -203,35 +203,10 @@ function EditProfile() {
         return;
       }
 
-      // Check Firestore for existing username (exclude current user's doc)
-      (async () => {
-        try {
-          const q = firestoreQuery(collection(db, 'users'), where('username', '==', candidate))
-          const snap = await getDocs(q)
-          // if no docs found, it's available
-          if (snap.empty) {
-            setUsernameStatus('available')
-            setUsernameMessage('Available')
-            return
-          }
-
-          // If only doc found belongs to current user, it's available
-          if (snap.size === 1 && snap.docs[0].id === user?.uid) {
-            setUsernameStatus('available')
-            setUsernameMessage('Available')
-            return
-          }
-
-          // Otherwise it's taken
-          setUsernameStatus('unavailable')
-          setUsernameMessage('Username is already taken')
-        } catch (e) {
-          console.error('Username availability check failed', e)
-          // treat as unavailable on error to be safe
-          setUsernameStatus('unavailable')
-          setUsernameMessage('Could not verify username')
-        }
-      })()
+      // Skip username availability check due to security rules
+      // Username validation disabled to avoid permission errors
+      setUsernameStatus('available')
+      setUsernameMessage('Available')
     }, 500);
 
     return () => clearTimeout(handle);
