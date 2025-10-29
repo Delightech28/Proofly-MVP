@@ -4,14 +4,24 @@ import { useState, useEffect, useRef } from "react";
 import { useTheme } from "../contexts/ThemeContext";
 import BottomNavigation from "./BottomNavigation";
 import { db } from '../lib/firebase'
-import { collection, query as firestoreQuery, where, orderBy, startAfter, limit as limitFn, getDocs } from 'firebase/firestore'
-import { makeAllUsersPublic } from '../lib/utils';
+import { getAuth } from 'firebase/auth';
+import { collection, query as firestoreQuery, where, orderBy, startAfter, limit as limitFn, getDocs } from 'firebase/firestore';
 
 function Search() {
   const navigate = useNavigate();
   const { isLightMode, toggleTheme } = useTheme();
   const [searchQuery, setSearchQuery] = useState("");
   const [activeFilter, setActiveFilter] = useState("all");
+  const auth = getAuth();
+  const [currentUserId, setCurrentUserId] = useState(auth.currentUser?.uid);
+
+  // Listen for auth state changes
+  useEffect(() => {
+    const unsubscribe = auth.onAuthStateChanged((user) => {
+      setCurrentUserId(user?.uid);
+    });
+    return () => unsubscribe();
+  }, [auth]);
 
   // Firestore-backed results & pagination
   const [results, setResults] = useState([])
@@ -29,10 +39,18 @@ function Search() {
 
   // derive filtered results from fetched results and active filter
   const filteredResults = results.filter(u => {
-    if (activeFilter === 'following') return u.isFollowing
-    if (activeFilter === 'not-following') return !u.isFollowing
-    return true
-  })
+    console.log('Filtering user:', { 
+      uid: u.uid, 
+      currentUserId, 
+      name: u.name, 
+      username: u.username 
+    });
+    // Remove current user and apply other filters
+    if (u.uid === currentUserId) return false;
+    if (activeFilter === 'following') return u.isFollowing;
+    if (activeFilter === 'not-following') return !u.isFollowing;
+    return true;
+  });
 
   const clearSearch = () => {
     setSearchQuery("");
@@ -69,10 +87,23 @@ function Search() {
           console.log('Total users in DB:', rawSnap.size);
           console.log('Sample user data:', rawSnap.docs[0]?.data());
           
-          const allQ = firestoreQuery(
-            collection(db, 'users'),
+          // Build query constraints
+          const constraints = [
             orderBy('createdAt', 'desc'),
             limitFn(PAGE_SIZE)
+          ];
+          
+          // Only add user filtering if logged in
+          if (currentUserId) {
+            constraints.unshift(
+              where('uid', '!=', currentUserId),
+              orderBy('uid')
+            );
+          }
+
+          const allQ = firestoreQuery(
+            collection(db, 'users'),
+            ...constraints
           )
           const snap = await getDocs(allQ)
           console.log('Found', snap.size, 'users');
@@ -111,23 +142,47 @@ function Search() {
       setError(null)
       try {
         // username prefix query
-        const unameQ = firestoreQuery(
-          collection(db, 'users'),
-          where('isPublic', '==', true),
+        // Build username query constraints
+        const unameConstraints = [
           where('username', '>=', q),
           where('username', '<=', q + '\\uf8ff'),
           orderBy('username'),
           limitFn(PAGE_SIZE)
+        ];
+        
+        // Only add user filtering if logged in
+        if (currentUserId) {
+          unameConstraints.unshift(
+            where('uid', '!=', currentUserId),
+            orderBy('uid')
+          );
+        }
+
+        const unameQ = firestoreQuery(
+          collection(db, 'users'),
+          ...unameConstraints
         )
 
         // displayName prefix query
-        const dnameQ = firestoreQuery(
-          collection(db, 'users'),
-          where('isPublic', '==', true),
+        // Build displayName query constraints
+        const dnameConstraints = [
           where('displayName', '>=', q),
           where('displayName', '<=', q + '\\uf8ff'),
           orderBy('displayName'),
           limitFn(PAGE_SIZE)
+        ];
+        
+        // Only add user filtering if logged in
+        if (currentUserId) {
+          dnameConstraints.unshift(
+            where('uid', '!=', currentUserId),
+            orderBy('uid')
+          );
+        }
+
+        const dnameQ = firestoreQuery(
+          collection(db, 'users'),
+          ...dnameConstraints
         )
 
         const [unameSnap, dnameSnap] = await Promise.all([getDocs(unameQ), getDocs(dnameQ)])
