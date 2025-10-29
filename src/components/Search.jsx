@@ -5,7 +5,7 @@ import { useTheme } from "../contexts/ThemeContext";
 import BottomNavigation from "./BottomNavigation";
 import { db } from '../lib/firebase'
 import { getAuth } from 'firebase/auth';
-import { collection, query as firestoreQuery, where, orderBy, startAfter, limit as limitFn, getDocs, doc, writeBatch, serverTimestamp, getDoc } from 'firebase/firestore';
+import { collection, query as firestoreQuery, where, orderBy, startAfter, limit as limitFn, getDocs, doc, writeBatch, serverTimestamp, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 
 function Search() {
   const navigate = useNavigate();
@@ -245,8 +245,8 @@ function Search() {
 
   const loadMore = async () => {
     const q = debouncedQuery.current
+    // if no query specified, load next page of 'all users' pagination
     if (!q) {
-      // load next page of all users
       if (!hasMoreAll || !lastAllDoc) return
       setLoading(true)
       setError(null)
@@ -277,9 +277,9 @@ function Search() {
           docs[i] = docs[j]
           docs[j] = tmp
         }
-        const map = new Map(results.map(r => [r.id, r]))
-        docs.forEach(d => { if (!map.has(d.id)) map.set(d.id, d) })
-        setResults(Array.from(map.values()))
+        const combined = new Map(results.map(r => [r.id, r]))
+        docs.forEach(d => { if (!combined.has(d.id)) combined.set(d.id, d) })
+        setResults(Array.from(combined.values()))
         setLastAllDoc(snap.docs[snap.docs.length - 1] || null)
         setHasMoreAll(snap.size === PAGE_SIZE)
       } catch (e) {
@@ -290,6 +290,8 @@ function Search() {
       }
       return
     }
+
+    // otherwise load next pages for username/displayName queries
     setLoading(true)
     setError(null)
     try {
@@ -346,9 +348,9 @@ function Search() {
       }
 
       // merge and dedupe against existing results
-      const map = new Map(results.map(r => [r.id, r]))
-      newDocs.forEach(d => { if (!map.has(d.id)) map.set(d.id, d) })
-      setResults(Array.from(map.values()))
+      const mergedMap = new Map(results.map(r => [r.id, r]))
+      newDocs.forEach(d => { if (!mergedMap.has(d.id)) mergedMap.set(d.id, d) })
+      setResults(Array.from(mergedMap.values()))
     } catch (e) {
       console.error('Load more failed', e)
       setError(e)
@@ -376,18 +378,75 @@ function Search() {
       const followerRef = doc(db, 'users', target.id, 'followers', currentUserId);
       const followingRef = doc(db, 'users', currentUserId, 'following', target.id);
 
+      // ensure we don't try to overwrite an existing follower/following doc (set on existing doc is an update and will be denied by rules)
+      const [followerSnap, followingSnap] = await Promise.all([getDoc(followerRef), getDoc(followingRef)]);
+      if (followerSnap.exists() || followingSnap.exists()) {
+        console.warn('Already following (or write would overwrite existing doc). Aborting follow to avoid permission errors.', { followerExists: followerSnap.exists(), followingExists: followingSnap.exists() });
+        // ensure UI reflects current state
+        setResults(prev => prev.map(u => u.id === target.id ? { ...u, isFollowing: true } : u));
+        setFollowingSet(s => new Set(Array.from(s).concat([target.id])));
+        return;
+      }
+
+      // If target user doc doesn't exist, abort (we cannot create another user's profile)
+      if (!tSnap.exists()) {
+        console.error('Target user document does not exist; cannot follow non-existent user', target.id);
+        throw new Error('Target user document missing');
+      }
+
+      // If my user doc doesn't exist, create a minimal profile so we can write followingCount (rules allow creating your own doc)
+      if (!mSnap.exists()) {
+        console.warn('My user doc missing; creating minimal profile for current user');
+        batch.set(meRef, { uid: currentUserId, followingCount: (mCount || 0) + 1, createdAt: serverTimestamp() });
+      } else {
+        batch.update(meRef, { followingCount: mCount + 1 });
+      }
+
+      // Add follower/following docs (safe because we checked they don't already exist)
       batch.set(followerRef, { uid: currentUserId, createdAt: serverTimestamp() });
       batch.set(followingRef, { uid: target.id, createdAt: serverTimestamp() });
+
+      // Update target followersCount (target doc exists per check above)
       batch.update(targetRef, { followersCount: tCount + 1 });
-      batch.update(meRef, { followingCount: mCount + 1 });
 
-      await batch.commit();
+      // debug: log what we are about to write so we can correlate with rules errors
+      try {
+        console.log('Attempting follow: currentUserId=', currentUserId, 'targetId=', target.id);
+        console.log('Target doc exists:', tSnap.exists(), 'Me doc exists:', mSnap.exists());
+        console.log('Counts before follow: target.followersCount=', tCount, 'me.followingCount=', mCount);
+        console.log('Batch writes:', {
+          followerPath: followerRef.path,
+          followingPath: followingRef.path,
+          targetUpdate: { path: targetRef.path, followersCount: tCount + 1 },
+          meUpdate: { path: meRef.path, followingCount: mCount + 1 }
+        });
 
-      // optimistic UI update
-      setResults(prev => prev.map(u => u.id === target.id ? { ...u, isFollowing: true, followers: (u.followers || tCount) + 1 } : u));
-      setFollowingSet(s => new Set(Array.from(s).concat([target.id])));
+        await batch.commit();
+
+        // optimistic UI update
+        setResults(prev => prev.map(u => u.id === target.id ? { ...u, isFollowing: true, followers: (u.followers || tCount) + 1 } : u));
+        setFollowingSet(s => new Set(Array.from(s).concat([target.id])));
+      } catch (commitErr) {
+        // Enhanced error logging for diagnostics
+        console.error('Follow commit failed', commitErr);
+        try {
+          console.error('Full commit error object:', JSON.stringify(commitErr, Object.getOwnPropertyNames(commitErr)));
+        } catch (jsonErr) {
+          console.error('Could not stringify commit error', jsonErr);
+        }
+        // log common fields if present
+        console.error('commitErr.code:', commitErr.code, 'commitErr.message:', commitErr.message);
+        throw commitErr;
+      }
     } catch (e) {
       console.error('Follow failed', e);
+      try {
+        console.error('Full error (all props):', JSON.stringify(e, Object.getOwnPropertyNames(e)));
+      } catch (jsonErr) {
+        console.error('Failed to stringify error', jsonErr);
+      }
+      // Helpful top-level info for quick inspection
+      console.error('Error code:', e.code, 'message:', e.message, 'stack:', e.stack);
       setError(e);
     } finally {
       setLoading(false);
@@ -417,19 +476,131 @@ function Search() {
       batch.update(targetRef, { followersCount: Math.max(tCount - 1, 0) });
       batch.update(meRef, { followingCount: Math.max(mCount - 1, 0) });
 
-      await batch.commit();
+      // debug: log what we will delete/update to aid rule debugging
+      try {
+        console.log('Attempting unfollow: currentUserId=', currentUserId, 'targetId=', target.id);
+        console.log('Target doc exists:', tSnap.exists(), 'Me doc exists:', mSnap.exists());
+        console.log('Counts before unfollow: target.followersCount=', tCount, 'me.followingCount=', mCount);
+        console.log('Batch writes (delete/update):', {
+          followerPath: followerRef.path,
+          followingPath: followingRef.path,
+          targetUpdate: { path: targetRef.path, followersCount: Math.max(tCount - 1, 0) },
+          meUpdate: { path: meRef.path, followingCount: Math.max(mCount - 1, 0) }
+        });
 
-      // optimistic UI update
-      setResults(prev => prev.map(u => u.id === target.id ? { ...u, isFollowing: false, followers: Math.max((u.followers || tCount) - 1, 0) } : u));
-      setFollowingSet(s => {
-        const next = new Set(Array.from(s).filter(id => id !== target.id));
-        return next;
-      });
+        await batch.commit();
+
+        // optimistic UI update
+        setResults(prev => prev.map(u => u.id === target.id ? { ...u, isFollowing: false, followers: Math.max((u.followers || tCount) - 1, 0) } : u));
+        setFollowingSet(s => {
+          const next = new Set(Array.from(s).filter(id => id !== target.id));
+          return next;
+        });
+      } catch (commitErr) {
+        console.error('Unfollow commit failed', commitErr);
+        try {
+          console.error('Full commit error object:', JSON.stringify(commitErr, Object.getOwnPropertyNames(commitErr)));
+        } catch (jsonErr) {
+          console.error('Could not stringify commit error', jsonErr);
+        }
+        console.error('commitErr.code:', commitErr.code, 'commitErr.message:', commitErr.message);
+        throw commitErr;
+      }
     } catch (e) {
       console.error('Unfollow failed', e);
+      try {
+        console.error('Full error (all props):', JSON.stringify(e, Object.getOwnPropertyNames(e)));
+      } catch (jsonErr) {
+        console.error('Failed to stringify error', jsonErr);
+      }
+      console.error('Error code:', e.code, 'message:', e.message, 'stack:', e.stack);
       setError(e);
     } finally {
       setLoading(false);
+    }
+  }
+
+  // Developer helper: try each write individually to pinpoint which operation is rejected by rules
+  const debugFollowOps = async (target) => {
+    if (!currentUserId) {
+      console.warn('debugFollowOps: not signed in');
+      return;
+    }
+    console.group('debugFollowOps', target.id);
+    const targetRef = doc(db, 'users', target.id);
+    const meRef = doc(db, 'users', currentUserId);
+    const followerRef = doc(db, 'users', target.id, 'followers', currentUserId);
+    const followingRef = doc(db, 'users', currentUserId, 'following', target.id);
+
+    try {
+      const results = [];
+      const [tSnap, mSnap] = await Promise.all([getDoc(targetRef), getDoc(meRef)]);
+      console.log('client auth uid:', auth.currentUser?.uid, 'currentUserId state:', currentUserId);
+      console.log('target exists:', tSnap.exists(), 'me exists:', mSnap.exists());
+      console.log('target data:', tSnap.exists() ? tSnap.data() : null);
+      console.log('me data:', mSnap.exists() ? mSnap.data() : null);
+
+      // 1) try creating follower doc under target
+      try {
+        console.log('about to set follower doc at', followerRef.path);
+        await setDoc(followerRef, { uid: currentUserId, createdAt: serverTimestamp() });
+        console.log('set follower doc OK', followerRef.path);
+        results.push({ step: 'setFollower', ok: true });
+      } catch (err) {
+        console.error('set follower failed', err);
+        try { results.push({ step: 'setFollower', ok: false, error: JSON.parse(JSON.stringify(err, Object.getOwnPropertyNames(err))) }) } catch(e){ results.push({ step: 'setFollower', ok: false, error: String(err) }) }
+      }
+
+      // 2) try creating following doc under me
+      try {
+        console.log('about to set following doc at', followingRef.path);
+        await setDoc(followingRef, { uid: target.id, createdAt: serverTimestamp() });
+        console.log('set following doc OK', followingRef.path);
+        results.push({ step: 'setFollowing', ok: true });
+      } catch (err) {
+        console.error('set following failed', err);
+        try { results.push({ step: 'setFollowing', ok: false, error: JSON.parse(JSON.stringify(err, Object.getOwnPropertyNames(err))) }) } catch(e){ results.push({ step: 'setFollowing', ok: false, error: String(err) }) }
+      }
+
+      // 3) try updating target followersCount
+      try {
+        const tCount = (tSnap.exists() && typeof tSnap.data().followersCount === 'number') ? tSnap.data().followersCount : 0;
+        console.log('about to update target followersCount from', tCount, 'to', tCount + 1);
+        await updateDoc(targetRef, { followersCount: tCount + 1 });
+        console.log('update target followersCount OK', targetRef.path, '->', tCount + 1);
+        results.push({ step: 'updateTargetCount', ok: true });
+      } catch (err) {
+        console.error('update target failed', err);
+        try { results.push({ step: 'updateTargetCount', ok: false, error: JSON.parse(JSON.stringify(err, Object.getOwnPropertyNames(err))) }) } catch(e){ results.push({ step: 'updateTargetCount', ok: false, error: String(err) }) }
+      }
+
+      // 4) try updating my followingCount
+      try {
+        const mCount = (mSnap.exists() && typeof mSnap.data().followingCount === 'number') ? mSnap.data().followingCount : 0;
+        console.log('about to update my followingCount from', mCount, 'to', mCount + 1);
+        await updateDoc(meRef, { followingCount: mCount + 1 });
+        console.log('update me followingCount OK', meRef.path, '->', mCount + 1);
+        results.push({ step: 'updateMyCount', ok: true });
+      } catch (err) {
+        console.error('update me failed', err);
+        try { results.push({ step: 'updateMyCount', ok: false, error: JSON.parse(JSON.stringify(err, Object.getOwnPropertyNames(err))) }) } catch(e){ results.push({ step: 'updateMyCount', ok: false, error: String(err) }) }
+      }
+
+      // show a quick alert with step statuses for easy copying
+      try {
+        const out = JSON.stringify({ targetId: target.id, currentUserId, steps: results }, null, 2);
+        console.log('debugFollowOps results:', out);
+        // small UI alert to make it easy to copy the results
+        // eslint-disable-next-line no-alert
+        alert('debugFollowOps results (copy from console if truncated):\n' + out);
+      } catch (e) {
+        console.log('Could not stringify results for alert', e);
+      }
+
+    } catch (e) {
+      console.error('debugFollowOps failure', e);
+    } finally {
+      console.groupEnd();
     }
   }
 
@@ -587,6 +758,14 @@ function Search() {
                   >
                     {user.isFollowing ? 'Unfollow' : 'Follow'}
                   </button>
+                  {import.meta.env && import.meta.env.MODE !== 'production' && (
+                    <button
+                      onClick={() => debugFollowOps(user)}
+                      className="px-3 py-2 rounded-lg bg-red-500 text-white text-xs"
+                    >
+                      DBG
+                    </button>
+                  )}
                 </div>
               </div>
             ))

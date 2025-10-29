@@ -5,10 +5,13 @@ service cloud.firestore {
     // Users collection: allow users to create and manage their own profile,
     // but disallow client updates to protected counters and referral audit fields.
     match /users/{userId} {
-      // Owners can read their profile; others can read only if the doc marks it public.
-      allow get: if request.auth != null && (request.auth.uid == userId || (resource.data.isPublic == true));
-      // Allow real-time listeners for the user's own profile
-      allow read: if request.auth != null && (request.auth.uid == userId || (resource.data.isPublic == true));
+  // Allow authenticated users to read/get user profiles. Previously this
+  // restricted reads to owners or public profiles only; that prevented
+  // client code from calling getDoc() on other users even though queries
+  // (list) were allowed. Allowing authenticated reads lets follow/unfollow
+  // handlers read the necessary counts. Tighten later if you need more
+  // privacy controls.
+  allow get, read: if request.auth != null;
       // Allow listing (queries) for authenticated users, but require client queries 
       // to include a filter for public profiles
       allow list: if request.auth != null;
