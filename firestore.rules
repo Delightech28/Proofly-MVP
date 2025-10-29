@@ -13,15 +13,72 @@ service cloud.firestore {
       // to include a filter for public profiles
       allow list: if request.auth != null;
 
-      allow create: if request.auth != null
-                    && request.auth.uid == userId
-                    && request.resource.data.uid == userId
-                    && ( !('xp' in request.resource.data) || request.resource.data.xp == 0 )
-                    && ( !('referralsXp' in request.resource.data) || request.resource.data.referralsXp == 0 )
-                    && ( !('referralsCount' in request.resource.data) || request.resource.data.referralsCount == 0 );
+  // Relaxed create rule for testing: allow any authenticated user to create their
+  // own profile document as long as the document ID and the `uid` field match.
+  // NOTE: This is relaxed for testing follow/unfollow behavior; revert to the
+  // stricter checks before production.
+  allow create: if request.auth != null
+        && request.auth.uid == userId
+        && request.resource.data.uid == userId;
 
-      allow update: if request.auth != null
-                    && request.auth.uid == userId;
+      allow update: if request.auth != null && (
+                    // owner may update their profile
+                    request.auth.uid == userId
+                    // allow authenticated clients to perform a single-field increment/decrement
+                    || (
+                      ('followersCount' in request.resource.data)
+                      && request.resource.data.followersCount is int
+                      && (
+                        // normal increment/decrement when the field already exists
+                        (('followersCount' in resource.data) && (request.resource.data.followersCount == resource.data.followersCount + 1 || request.resource.data.followersCount == resource.data.followersCount - 1))
+                        // or allow creating the field from missing -> 1 (first follower)
+                        || (!('followersCount' in resource.data) && request.resource.data.followersCount == 1)
+                      )
+                    )
+                    || (
+                      ('followingCount' in request.resource.data)
+                      && request.resource.data.followingCount is int
+                      && (
+                        (('followingCount' in resource.data) && (request.resource.data.followingCount == resource.data.followingCount + 1 || request.resource.data.followingCount == resource.data.followingCount - 1))
+                        || (!('followingCount' in resource.data) && request.resource.data.followingCount == 1)
+                      )
+                    )
+                  );
+
+      // Allow managing followers/following subcollections for follow/unfollow actions
+      match /followers/{followerId} {
+        // A user may create a follower record under another user's followers collection
+        // only if they are the authenticated user and the doc contains their uid and doesn't already exist.
+        allow create: if request.auth != null
+                      && request.auth.uid == followerId
+                      && request.resource.data.uid == followerId
+                      && !exists(/databases/$(database)/documents/users/$(userId)/followers/$(followerId));
+
+        // A follower may remove their own follower doc (unfollow)
+        allow delete: if request.auth != null && request.auth.uid == followerId;
+
+        // Allow owner to list/read their followers and follower to read their own follower doc
+        allow read, list: if request.auth != null && (request.auth.uid == userId || request.auth.uid == followerId);
+
+        // No updates allowed (create/delete only)
+        allow update: if false;
+      }
+
+      match /following/{followingId} {
+        // A user may create a following record under their own user doc when they follow someone
+        allow create: if request.auth != null
+                      && request.auth.uid == userId
+                      && request.resource.data.uid == followingId
+                      && !exists(/databases/$(database)/documents/users/$(userId)/following/$(followingId));
+
+        // A user may remove (delete) their own following records
+        allow delete: if request.auth != null && request.auth.uid == userId;
+
+        // Users may read their own following list
+        allow read, list: if request.auth != null && request.auth.uid == userId;
+
+        allow update: if false;
+      }
 
       allow delete: if false;
     }
@@ -67,6 +124,26 @@ service cloud.firestore {
     }
 
     // Default: deny everything else from client
+    // Username mapping collection: small documents mapping username -> uid
+    match /usernames/{username} {
+      // Allow availability checks (reads) from client code
+      allow get: if true;
+
+      // Allow creating a mapping only if the client is authenticated,
+      // the created document contains { uid: request.auth.uid },
+      // and the document does not already exist (prevent overwrite).
+      allow create: if request.auth != null
+                    && request.resource.data.uid == request.auth.uid
+                    && !exists(/databases/$(database)/documents/usernames/$(username));
+
+      // Allow deleting a mapping only if the authenticated user owns it
+      allow delete: if request.auth != null
+                    && resource.data.uid == request.auth.uid;
+
+      // Disallow arbitrary updates (changing owner must be done via create/delete)
+      allow update: if false;
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }

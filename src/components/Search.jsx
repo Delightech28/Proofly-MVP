@@ -5,7 +5,7 @@ import { useTheme } from "../contexts/ThemeContext";
 import BottomNavigation from "./BottomNavigation";
 import { db } from '../lib/firebase'
 import { getAuth } from 'firebase/auth';
-import { collection, query as firestoreQuery, where, orderBy, startAfter, limit as limitFn, getDocs } from 'firebase/firestore';
+import { collection, query as firestoreQuery, where, orderBy, startAfter, limit as limitFn, getDocs, doc, writeBatch, serverTimestamp, getDoc } from 'firebase/firestore';
 
 function Search() {
   const navigate = useNavigate();
@@ -23,6 +23,29 @@ function Search() {
     return () => unsubscribe();
   }, [auth]);
 
+  const [followingSet, setFollowingSet] = useState(new Set());
+
+  // fetch the current user's following list so we can mark results as followed
+  useEffect(() => {
+    if (!currentUserId) {
+      setFollowingSet(new Set());
+      return;
+    }
+
+    let mounted = true;
+    (async () => {
+      try {
+        const snap = await getDocs(collection(db, 'users', currentUserId, 'following'));
+        if (!mounted) return;
+        setFollowingSet(new Set(snap.docs.map(d => d.id)));
+      } catch (e) {
+        console.error('Failed to fetch following list', e);
+      }
+    })();
+
+    return () => { mounted = false };
+  }, [currentUserId]);
+
   // Firestore-backed results & pagination
   const [results, setResults] = useState([])
   const [loading, setLoading] = useState(false)
@@ -39,14 +62,10 @@ function Search() {
 
   // derive filtered results from fetched results and active filter
   const filteredResults = results.filter(u => {
-    console.log('Filtering user:', { 
-      uid: u.uid, 
-      currentUserId, 
-      name: u.name, 
-      username: u.username 
-    });
+    // Prefer document uid if present, fallback to doc id
+    const uid = u.uid ?? u.id;
     // Remove current user and apply other filters
-    if (u.uid === currentUserId) return false;
+    if (currentUserId && uid === currentUserId) return false;
     if (activeFilter === 'following') return u.isFollowing;
     if (activeFilter === 'not-following') return !u.isFollowing;
     return true;
@@ -110,13 +129,15 @@ function Search() {
           console.log('First user data:', snap.docs[0]?.data());
           const docs = snap.docs.map(d => {
             const data = d.data();
+            const uid = data.uid ?? d.id;
             return {
               id: d.id,
+              uid,
               name: data.displayName || `${data.firstName} ${data.lastName}`.trim(),
               username: data.username || '',
-              followers: 0,  // Set to zero until following system is implemented
-              isFollowing: false,  // Default to false until we implement following
-              ...data  // Keep original data too
+              followers: 0,
+              isFollowing: followingSet.has(d.id) || followingSet.has(uid),
+              ...data
             };
           });
           // shuffle page for a random display order
@@ -187,8 +208,16 @@ function Search() {
 
         const [unameSnap, dnameSnap] = await Promise.all([getDocs(unameQ), getDocs(dnameQ)])
 
-        const unameDocs = unameSnap.docs.map(d => ({ id: d.id, ...d.data() }))
-        const dnameDocs = dnameSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+        const unameDocs = unameSnap.docs.map(d => {
+          const data = d.data();
+          const uid = data.uid ?? d.id;
+          return { id: d.id, uid, ...data, isFollowing: followingSet.has(d.id) || followingSet.has(uid) }
+        })
+        const dnameDocs = dnameSnap.docs.map(d => {
+          const data = d.data();
+          const uid = data.uid ?? d.id;
+          return { id: d.id, uid, ...data, isFollowing: followingSet.has(d.id) || followingSet.has(uid) }
+        })
 
         // dedupe by uid (id)
         const map = new Map()
@@ -230,7 +259,17 @@ function Search() {
           limitFn(PAGE_SIZE)
         )
         const snap = await getDocs(allQ)
-        const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+        const docs = snap.docs.map(d => {
+          const data = d.data();
+          const uid = data.uid ?? d.id;
+          return {
+            id: d.id,
+            uid,
+            ...data,
+            followers: data.followers || 0,
+            isFollowing: followingSet.has(d.id) || followingSet.has(uid),
+          }
+        })
         // shuffle this page as well
         for (let i = docs.length - 1; i > 0; i--) {
           const j = Math.floor(Math.random() * (i + 1))
@@ -288,12 +327,20 @@ function Search() {
       const [unameSnap, dnameSnap] = await Promise.all(promises)
       const newDocs = []
       if (unameSnap) {
-        unameSnap.docs.forEach(d => newDocs.push({ id: d.id, ...d.data() }))
+        unameSnap.docs.forEach(d => {
+          const data = d.data();
+          const uid = data.uid ?? d.id;
+          newDocs.push({ id: d.id, uid, ...data, isFollowing: followingSet.has(d.id) || followingSet.has(uid) })
+        })
         setLastUsernameDoc(unameSnap.docs[unameSnap.docs.length - 1] || null)
         setHasMoreUsername(unameSnap.size === PAGE_SIZE)
       }
       if (dnameSnap) {
-        dnameSnap.docs.forEach(d => newDocs.push({ id: d.id, ...d.data() }))
+        dnameSnap.docs.forEach(d => {
+          const data = d.data();
+          const uid = data.uid ?? d.id;
+          newDocs.push({ id: d.id, uid, ...data, isFollowing: followingSet.has(d.id) || followingSet.has(uid) })
+        })
         setLastDisplayDoc(dnameSnap.docs[dnameSnap.docs.length - 1] || null)
         setHasMoreDisplay(dnameSnap.size === PAGE_SIZE)
       }
@@ -307,6 +354,82 @@ function Search() {
       setError(e)
     } finally {
       setLoading(false)
+    }
+  }
+
+  // Follow / unfollow handlers
+  const handleFollow = async (target) => {
+    if (!currentUserId) {
+      alert('You must be signed in to follow users');
+      return;
+    }
+    setLoading(true);
+    try {
+      // read current counts to produce absolute updates (security rules validate absolute changes)
+      const targetRef = doc(db, 'users', target.id);
+      const meRef = doc(db, 'users', currentUserId);
+      const [tSnap, mSnap] = await Promise.all([getDoc(targetRef), getDoc(meRef)]);
+      const tCount = (tSnap.exists() && typeof tSnap.data().followersCount === 'number') ? tSnap.data().followersCount : 0;
+      const mCount = (mSnap.exists() && typeof mSnap.data().followingCount === 'number') ? mSnap.data().followingCount : 0;
+
+      const batch = writeBatch(db);
+      const followerRef = doc(db, 'users', target.id, 'followers', currentUserId);
+      const followingRef = doc(db, 'users', currentUserId, 'following', target.id);
+
+      batch.set(followerRef, { uid: currentUserId, createdAt: serverTimestamp() });
+      batch.set(followingRef, { uid: target.id, createdAt: serverTimestamp() });
+      batch.update(targetRef, { followersCount: tCount + 1 });
+      batch.update(meRef, { followingCount: mCount + 1 });
+
+      await batch.commit();
+
+      // optimistic UI update
+      setResults(prev => prev.map(u => u.id === target.id ? { ...u, isFollowing: true, followers: (u.followers || tCount) + 1 } : u));
+      setFollowingSet(s => new Set(Array.from(s).concat([target.id])));
+    } catch (e) {
+      console.error('Follow failed', e);
+      setError(e);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const handleUnfollow = async (target) => {
+    if (!currentUserId) {
+      alert('You must be signed in to unfollow users');
+      return;
+    }
+    setLoading(true);
+    try {
+      // read current counts first
+      const targetRef = doc(db, 'users', target.id);
+      const meRef = doc(db, 'users', currentUserId);
+      const [tSnap, mSnap] = await Promise.all([getDoc(targetRef), getDoc(meRef)]);
+      const tCount = (tSnap.exists() && typeof tSnap.data().followersCount === 'number') ? tSnap.data().followersCount : 0;
+      const mCount = (mSnap.exists() && typeof mSnap.data().followingCount === 'number') ? mSnap.data().followingCount : 0;
+
+      const batch = writeBatch(db);
+      const followerRef = doc(db, 'users', target.id, 'followers', currentUserId);
+      const followingRef = doc(db, 'users', currentUserId, 'following', target.id);
+
+      batch.delete(followerRef);
+      batch.delete(followingRef);
+      batch.update(targetRef, { followersCount: Math.max(tCount - 1, 0) });
+      batch.update(meRef, { followingCount: Math.max(mCount - 1, 0) });
+
+      await batch.commit();
+
+      // optimistic UI update
+      setResults(prev => prev.map(u => u.id === target.id ? { ...u, isFollowing: false, followers: Math.max((u.followers || tCount) - 1, 0) } : u));
+      setFollowingSet(s => {
+        const next = new Set(Array.from(s).filter(id => id !== target.id));
+        return next;
+      });
+    } catch (e) {
+      console.error('Unfollow failed', e);
+      setError(e);
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -453,12 +576,16 @@ function Search() {
                   }`}>
                     <MessageCircle className="w-5 h-5" />
                   </button>
-                  <button className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors duration-300 cursor-pointer ${
-                    user.isFollowing
-                      ? (isLightMode ? 'bg-gray-200 text-gray-700 hover:bg-gray-300' : 'bg-gray-600 text-gray-300 hover:bg-gray-500')
-                      : 'bg-indigo-600 text-black hover:bg-indigo-600'
-                  }`}>
-                    {user.isFollowing ? 'Following' : 'Follow'}
+                  <button
+                    onClick={() => user.isFollowing ? handleUnfollow(user) : handleFollow(user)}
+                    disabled={loading}
+                    className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors duration-300 cursor-pointer ${
+                      user.isFollowing
+                        ? (isLightMode ? 'bg-gray-200 text-gray-700 hover:bg-gray-300' : 'bg-gray-600 text-gray-300 hover:bg-gray-500')
+                        : 'bg-indigo-600 text-black hover:bg-indigo-600'
+                    }`}
+                  >
+                    {user.isFollowing ? 'Unfollow' : 'Follow'}
                   </button>
                 </div>
               </div>
