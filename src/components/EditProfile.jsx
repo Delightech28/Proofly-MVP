@@ -6,7 +6,7 @@ import { Wallet, ConnectWallet, WalletDropdown, WalletDropdownDisconnect } from 
 import { Avatar, Name, Address, Identity } from '@coinbase/onchainkit/identity';
 import ProfileImage from "../assets/images/Delight.png";
 import useFirebase from '../hooks/useFirebase'
-import { doc, getDoc, updateDoc, collection, getDocs, where, query as firestoreQuery } from 'firebase/firestore'
+import { doc, getDoc, updateDoc, collection, getDocs, where, query as firestoreQuery, runTransaction } from 'firebase/firestore'
 import { db } from '../lib/firebase'
 import { auth } from '../lib/firebase'
 import { updateProfile } from 'firebase/auth'
@@ -131,22 +131,8 @@ function EditProfile() {
       }
     }
 
-    const detectAndSave = async () => {
-      try {
-        const win = window
-        if (win?.ethereum && typeof win.ethereum.request === 'function') {
-          const accounts = await win.ethereum.request({ method: 'eth_accounts' })
-          if (accounts && accounts.length) await saveWalletAddress(accounts[0])
-        } else if (win?.web3 && win.web3?.eth && typeof win.web3.eth.getAccounts === 'function') {
-          const accounts = await new Promise((res, rej) => win.web3.eth.getAccounts((err, acc) => err ? rej(err) : res(acc)))
-          if (accounts && accounts.length) await saveWalletAddress(accounts[0])
-        }
-      } catch (e) {
-        console.warn('Could not detect wallet on load', e)
-      }
-    }
-
-    detectAndSave()
+    // Removed detectAndSave() call to prevent automatic wallet pop-up on page refresh
+    // Wallet address will only be saved when user explicitly connects/interacts
 
     const accountsChangedHandler = (accounts) => {
       // accounts may be an array or a single string depending on provider
@@ -202,11 +188,35 @@ function EditProfile() {
         setUsernameMessage('Only lowercase letters, numbers, and underscores allowed');
         return;
       }
+      // perform a fast check against the `usernames/{username}` mapping if available
+      (async () => {
+        try {
+          const currentUsername = (initialData?.username || '').replace(/^@/, '').trim().toLowerCase()
+          if (candidate === currentUsername) {
+            setUsernameStatus('available')
+            setUsernameMessage('Available')
+            return
+          }
 
-      // Skip username availability check due to security rules
-      // Username validation disabled to avoid permission errors
-      setUsernameStatus('available')
-      setUsernameMessage('Available')
+          const unameRef = doc(db, 'usernames', candidate)
+          const unameSnap = await getDoc(unameRef)
+          if (unameSnap.exists()) {
+            const existingUid = unameSnap.data()?.uid
+            if (existingUid && existingUid !== user?.uid) {
+              setUsernameStatus('unavailable')
+              setUsernameMessage('Username already taken')
+              return
+            }
+          }
+
+          setUsernameStatus('available')
+          setUsernameMessage('Available')
+        } catch (e) {
+          console.error('Username availability check failed', e)
+          setUsernameStatus('idle')
+          setUsernameMessage('Could not verify availability (network/permission). Try saving to confirm.')
+        }
+      })()
     }, 500);
 
     return () => clearTimeout(handle);
@@ -457,7 +467,46 @@ function EditProfile() {
               if (usernameRaw !== undefined) updates.username = normalizedUsername || ''
               if (walletAddress) updates.walletAddress = walletAddress
 
-              await updateDoc(uref, updates)
+              // Atomically claim username using a `usernames/{username}` mapping and update users/{uid}
+              // This avoids races and does not require listing the entire users collection.
+              if (usernameRaw !== undefined && normalizedUsername) {
+                try {
+                  await runTransaction(db, async (tx) => {
+                    const unameRef = doc(db, 'usernames', normalizedUsername)
+                    const unameSnap = await tx.get(unameRef)
+                    if (unameSnap.exists()) {
+                      const existingUid = unameSnap.data()?.uid
+                      if (existingUid && existingUid !== user.uid) {
+                        throw new Error('Username already taken')
+                      }
+                      // if existingUid === user.uid, it's fine (already claimed by this user)
+                    } else {
+                      tx.set(unameRef, { uid: user.uid })
+                    }
+
+                    // remove old mapping if user changed username
+                    const currentUsername = (initialData?.username || '').replace(/^@/, '').trim().toLowerCase()
+                    if (currentUsername && currentUsername !== normalizedUsername) {
+                      const oldRef = doc(db, 'usernames', currentUsername)
+                      const oldSnap = await tx.get(oldRef)
+                      if (oldSnap.exists() && oldSnap.data()?.uid === user.uid) {
+                        tx.delete(oldRef)
+                      }
+                    }
+
+                    // update the user document in the same transaction
+                    tx.update(uref, updates)
+                  })
+                } catch (e) {
+                  console.error('Username transaction failed', e)
+                  showToast({ title: 'Save failed', description: e?.message || 'Username is not available. Choose another.', variant: 'error' })
+                  setSaving(false)
+                  return
+                }
+              } else {
+                // No username change, just update the user doc
+                await updateDoc(uref, updates)
+              }
               // notify success
               showToast({ title: 'Profile updated', description: 'Your changes have been saved.', variant: 'success' })
 

@@ -160,22 +160,57 @@ export function FirebaseProvider({ children }) {
 
     // write a profile document in Firestore under 'users/{uid}'
     try {
-      await setDoc(doc(db, 'users', u.uid), {
-        uid: u.uid,
-        email: u.email,
-        username,
-        referralCode: referralCode || null,
-        displayName: profile.displayName || null,
-        firstName: profile.firstName || null,
-        lastName: profile.lastName || null,
-        is_verified: false,
-        verification_code_hash: codeHash,
-        verification_expires: expiresAt,
-        // Referral tracking fields
-        referralsCount: 0,
-        referredUids: [],
-        createdAt: serverTimestamp()
-      })
+        // Atomically create the users/{uid} profile and claim usernames/{username}
+        // to ensure uniqueness. Retry username generation a few times if collisions occur.
+        let attempts = 0
+        const maxAttempts = 5
+        let chosenUsername = username
+        let created = false
+        while (!created && attempts < maxAttempts) {
+          try {
+            // runTransaction will create the username mapping and the user document atomically
+            await runTransaction(db, async (tx) => {
+              const unameRef = doc(db, 'usernames', chosenUsername)
+              const unameSnap = await tx.get(unameRef)
+              if (unameSnap.exists()) {
+                // collision — throw to retry outside the transaction
+                throw new Error('USERNAME_TAKEN')
+              }
+
+              // create username mapping
+              tx.set(unameRef, { uid: u.uid })
+
+              // create user profile doc
+              tx.set(doc(db, 'users', u.uid), {
+                uid: u.uid,
+                email: u.email,
+                username: chosenUsername,
+                referralCode: referralCode || null,
+                displayName: profile.displayName || null,
+                firstName: profile.firstName || null,
+                lastName: profile.lastName || null,
+                is_verified: false,
+                verification_code_hash: codeHash,
+                verification_expires: expiresAt,
+                // Referral tracking fields
+                referralsCount: 0,
+                referredUids: [],
+                createdAt: serverTimestamp()
+              })
+            })
+            created = true
+          } catch (e) {
+            if (e?.message === 'USERNAME_TAKEN') {
+              // generate a new candidate and retry
+              attempts++
+              chosenUsername = generateUsername(profile.firstName, profile.lastName) + Math.floor(Math.random() * 900).toString()
+              continue
+            }
+            // other errors: rethrow
+            throw e
+          }
+        }
+        if (!created) throw new Error('Failed to claim a unique username after multiple attempts')
     } catch (e) {
       console.error('Failed to write Firestore user profile', e)
       // surface failure to caller so UI can show a toast/error
