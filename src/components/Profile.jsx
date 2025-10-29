@@ -1,4 +1,4 @@
-import { Settings, House, Search, MessageSquare, User, Heart, MessageCircle, Camera, Star, 
+import { Settings, House, Search, MessageSquare, User, Heart, MessageCircle, Star, 
   Activity, ListTodo, Award
 } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
@@ -71,9 +71,6 @@ function Profile() {
       <div className="flex flex-col items-center mt-6">
         <div className="relative">
           <img src={ProfileImage} alt="avatar" className="w-20 h-20 rounded-full" />
-          <div className="absolute bottom-0 right-0 bg-indigo-600 p-[3px] rounded-full">
-            <Camera className="w-3 h-3 text-black" />
-          </div>
         </div>
 
   <h2 className="text-lg font-semibold mt-2">{user?.displayName || 'Your name'}</h2>

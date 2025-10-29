@@ -1,8 +1,11 @@
 import { ArrowLeft, Moon, Sun, Search as SearchIcon, Users, MessageCircle, UserPlus, Filter, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useTheme } from "../contexts/ThemeContext";
 import BottomNavigation from "./BottomNavigation";
+import { db } from '../lib/firebase'
+import { collection, query as firestoreQuery, where, orderBy, startAfter, limit as limitFn, getDocs } from 'firebase/firestore'
+import { makeAllUsersPublic } from '../lib/utils';
 
 function Search() {
   const navigate = useNavigate();
@@ -10,74 +13,247 @@ function Search() {
   const [searchQuery, setSearchQuery] = useState("");
   const [activeFilter, setActiveFilter] = useState("all");
 
-  const searchResults = [
-    {
-      id: 1,
-      name: "Sarah Johnson",
-      username: "@sarahj",
-      bio: "Fitness enthusiast and crypto trader",
-      followers: "2.5k",
-      isFollowing: false,
-      avatar: null
-    },
-    {
-      id: 2,
-      name: "Mike Chen",
-      username: "@mikechen",
-      bio: "Blockchain developer and DeFi enthusiast",
-      followers: "1.8k",
-      isFollowing: true,
-      avatar: null
-    },
-    {
-      id: 3,
-      name: "Emma Davis",
-      username: "@emmad",
-      bio: "Digital artist and NFT creator",
-      followers: "3.2k",
-      isFollowing: false,
-      avatar: null
-    },
-    {
-      id: 4,
-      name: "Alex Rodriguez",
-      username: "@alexr",
-      bio: "Web3 entrepreneur and investor",
-      followers: "5.1k",
-      isFollowing: false,
-      avatar: null
-    },
-    {
-      id: 5,
-      name: "Lisa Wang",
-      username: "@lisaw",
-      bio: "Crypto analyst and content creator",
-      followers: "4.7k",
-      isFollowing: true,
-      avatar: null
-    }
-  ];
+  // Firestore-backed results & pagination
+  const [results, setResults] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
+  const [lastUsernameDoc, setLastUsernameDoc] = useState(null)
+  const [lastDisplayDoc, setLastDisplayDoc] = useState(null)
+  const [lastAllDoc, setLastAllDoc] = useState(null)
+  const [hasMoreUsername, setHasMoreUsername] = useState(false)
+  const [hasMoreDisplay, setHasMoreDisplay] = useState(false)
+  const [hasMoreAll, setHasMoreAll] = useState(false)
+  const debouncedQuery = useRef('')
+  const DEBOUNCE_MS = 300
+  const PAGE_SIZE = 10
 
-  const filteredResults = searchResults.filter(user => {
-    // If there's a search query, filter by it
-    if (searchQuery) {
-      const matchesSearch = user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                           user.username.toLowerCase().includes(searchQuery.toLowerCase());
-      
-      if (activeFilter === "following") return matchesSearch && user.isFollowing;
-      if (activeFilter === "not-following") return matchesSearch && !user.isFollowing;
-      return matchesSearch;
-    }
-    
-    // If no search query, show users based on active filter
-    if (activeFilter === "following") return user.isFollowing;
-    if (activeFilter === "not-following") return !user.isFollowing;
-    return true; // Show all users for "all" tab
-  });
+  // derive filtered results from fetched results and active filter
+  const filteredResults = results.filter(u => {
+    if (activeFilter === 'following') return u.isFollowing
+    if (activeFilter === 'not-following') return !u.isFollowing
+    return true
+  })
 
   const clearSearch = () => {
     setSearchQuery("");
   };
+
+  // debounce search input
+  useEffect(() => {
+    const t = setTimeout(() => {
+      debouncedQuery.current = (searchQuery || '').trim()
+      // reset pagination when query changes
+      setResults([])
+      setLastUsernameDoc(null)
+      setLastDisplayDoc(null)
+      setHasMoreUsername(false)
+      setHasMoreDisplay(false)
+    }, DEBOUNCE_MS)
+    return () => clearTimeout(t)
+  }, [searchQuery])
+
+  // perform first page fetch when debouncedQuery updates
+  useEffect(() => {
+    let mounted = true
+    const q = debouncedQuery.current
+    const fetchFirst = async () => {
+      // if no query, fetch a page of all users (randomized per page)
+      if (!q) {
+        setLoading(true)
+        setError(null)
+        try {
+          console.log('Fetching all users...');
+          // First try to get all users without filters to debug
+          const usersRef = collection(db, 'users');
+          const rawSnap = await getDocs(usersRef);
+          console.log('Total users in DB:', rawSnap.size);
+          console.log('Sample user data:', rawSnap.docs[0]?.data());
+          
+          const allQ = firestoreQuery(
+            collection(db, 'users'),
+            orderBy('createdAt', 'desc'),
+            limitFn(PAGE_SIZE)
+          )
+          const snap = await getDocs(allQ)
+          console.log('Found', snap.size, 'users');
+          console.log('First user data:', snap.docs[0]?.data());
+          const docs = snap.docs.map(d => {
+            const data = d.data();
+            return {
+              id: d.id,
+              name: data.displayName || `${data.firstName} ${data.lastName}`.trim(),
+              username: data.username || '',
+              followers: 0,  // Set to zero until following system is implemented
+              isFollowing: false,  // Default to false until we implement following
+              ...data  // Keep original data too
+            };
+          });
+          // shuffle page for a random display order
+          for (let i = docs.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1))
+            const tmp = docs[i]
+            docs[i] = docs[j]
+            docs[j] = tmp
+          }
+          if (!mounted) return
+          setResults(docs)
+          setLastAllDoc(snap.docs[snap.docs.length - 1] || null)
+          setHasMoreAll(snap.size === PAGE_SIZE)
+        } catch (e) {
+          console.error('Failed to fetch users', e)
+          if (mounted) setError(e)
+        } finally {
+          if (mounted) setLoading(false)
+        }
+        return
+      }
+      setLoading(true)
+      setError(null)
+      try {
+        // username prefix query
+        const unameQ = firestoreQuery(
+          collection(db, 'users'),
+          where('isPublic', '==', true),
+          where('username', '>=', q),
+          where('username', '<=', q + '\\uf8ff'),
+          orderBy('username'),
+          limitFn(PAGE_SIZE)
+        )
+
+        // displayName prefix query
+        const dnameQ = firestoreQuery(
+          collection(db, 'users'),
+          where('isPublic', '==', true),
+          where('displayName', '>=', q),
+          where('displayName', '<=', q + '\\uf8ff'),
+          orderBy('displayName'),
+          limitFn(PAGE_SIZE)
+        )
+
+        const [unameSnap, dnameSnap] = await Promise.all([getDocs(unameQ), getDocs(dnameQ)])
+
+        const unameDocs = unameSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+        const dnameDocs = dnameSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+
+        // dedupe by uid (id)
+        const map = new Map()
+        unameDocs.forEach(u => map.set(u.id, u))
+        dnameDocs.forEach(d => { if (!map.has(d.id)) map.set(d.id, d) })
+
+        const merged = Array.from(map.values())
+
+        if (!mounted) return
+        setResults(merged)
+        setLastUsernameDoc(unameSnap.docs[unameSnap.docs.length - 1] || null)
+        setLastDisplayDoc(dnameSnap.docs[dnameSnap.docs.length - 1] || null)
+        setHasMoreUsername(unameSnap.size === PAGE_SIZE)
+        setHasMoreDisplay(dnameSnap.size === PAGE_SIZE)
+      } catch (e) {
+        console.error('Search query failed', e)
+        if (mounted) setError(e)
+      } finally {
+        if (mounted) setLoading(false)
+      }
+    }
+    fetchFirst()
+    return () => { mounted = false }
+  }, [debouncedQuery.current])
+
+  const loadMore = async () => {
+    const q = debouncedQuery.current
+    if (!q) {
+      // load next page of all users
+      if (!hasMoreAll || !lastAllDoc) return
+      setLoading(true)
+      setError(null)
+      try {
+        const allQ = firestoreQuery(
+          collection(db, 'users'),
+          where('isPublic', '==', true),
+          orderBy('createdAt', 'desc'),
+          startAfter(lastAllDoc),
+          limitFn(PAGE_SIZE)
+        )
+        const snap = await getDocs(allQ)
+        const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+        // shuffle this page as well
+        for (let i = docs.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1))
+          const tmp = docs[i]
+          docs[i] = docs[j]
+          docs[j] = tmp
+        }
+        const map = new Map(results.map(r => [r.id, r]))
+        docs.forEach(d => { if (!map.has(d.id)) map.set(d.id, d) })
+        setResults(Array.from(map.values()))
+        setLastAllDoc(snap.docs[snap.docs.length - 1] || null)
+        setHasMoreAll(snap.size === PAGE_SIZE)
+      } catch (e) {
+        console.error('Load more (all) failed', e)
+        setError(e)
+      } finally {
+        setLoading(false)
+      }
+      return
+    }
+    setLoading(true)
+    setError(null)
+    try {
+      const promises = []
+      if (hasMoreUsername && lastUsernameDoc) {
+        const unameQ = firestoreQuery(
+          collection(db, 'users'),
+          where('isPublic', '==', true),
+          where('username', '>=', q),
+          where('username', '<=', q + '\\uf8ff'),
+          orderBy('username'),
+          startAfter(lastUsernameDoc),
+          limitFn(PAGE_SIZE)
+        )
+        promises.push(getDocs(unameQ))
+      } else {
+        promises.push(Promise.resolve(null))
+      }
+
+      if (hasMoreDisplay && lastDisplayDoc) {
+        const dnameQ = firestoreQuery(
+          collection(db, 'users'),
+          where('isPublic', '==', true),
+          where('displayName', '>=', q),
+          where('displayName', '<=', q + '\\uf8ff'),
+          orderBy('displayName'),
+          startAfter(lastDisplayDoc),
+          limitFn(PAGE_SIZE)
+        )
+        promises.push(getDocs(dnameQ))
+      } else {
+        promises.push(Promise.resolve(null))
+      }
+
+      const [unameSnap, dnameSnap] = await Promise.all(promises)
+      const newDocs = []
+      if (unameSnap) {
+        unameSnap.docs.forEach(d => newDocs.push({ id: d.id, ...d.data() }))
+        setLastUsernameDoc(unameSnap.docs[unameSnap.docs.length - 1] || null)
+        setHasMoreUsername(unameSnap.size === PAGE_SIZE)
+      }
+      if (dnameSnap) {
+        dnameSnap.docs.forEach(d => newDocs.push({ id: d.id, ...d.data() }))
+        setLastDisplayDoc(dnameSnap.docs[dnameSnap.docs.length - 1] || null)
+        setHasMoreDisplay(dnameSnap.size === PAGE_SIZE)
+      }
+
+      // merge and dedupe against existing results
+      const map = new Map(results.map(r => [r.id, r]))
+      newDocs.forEach(d => { if (!map.has(d.id)) map.set(d.id, d) })
+      setResults(Array.from(map.values()))
+    } catch (e) {
+      console.error('Load more failed', e)
+      setError(e)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   return (
     <div className={`min-h-screen transition-colors duration-300 ${isLightMode ? 'bg-gray-50 text-gray-900' : 'bg-[#0e0e0e] text-white'}`}>
@@ -144,7 +320,7 @@ function Search() {
                 : (isLightMode ? 'text-gray-600' : 'text-gray-400')
             }`}
           >
-            All ({searchResults.length})
+            All ({results.length})
           </button>
           <button
             onClick={() => setActiveFilter('following')}
@@ -154,7 +330,7 @@ function Search() {
                 : (isLightMode ? 'text-gray-600' : 'text-gray-400')
             }`}
           >
-            Following ({searchResults.filter(u => u.isFollowing).length})
+            Following ({results.filter(u => u.isFollowing).length})
           </button>
           <button
             onClick={() => setActiveFilter('not-following')}
@@ -164,7 +340,7 @@ function Search() {
                 : (isLightMode ? 'text-gray-600' : 'text-gray-400')
             }`}
           >
-            Discover ({searchResults.filter(u => !u.isFollowing).length})
+            Discover ({results.filter(u => !u.isFollowing).length})
           </button>
         </div>
       </div>
@@ -205,12 +381,11 @@ function Search() {
                   </div>
                   <div>
                     <h4 className="font-semibold text-sm">{user.name}</h4>
-                    <p className={`text-xs transition-colors duration-300 ${isLightMode ? 'text-gray-500' : 'text-gray-400'}`}>
-                      {user.username}
-                    </p>
-                    <p className={`text-xs mt-1 transition-colors duration-300 ${isLightMode ? 'text-gray-600' : 'text-gray-300'}`}>
-                      {user.bio}
-                    </p>
+                    {user.username && (
+                      <p className={`text-xs transition-colors duration-300 ${isLightMode ? 'text-gray-500' : 'text-gray-400'}`}>
+                        @{user.username}
+                      </p>
+                    )}
                     <p className={`text-xs mt-1 transition-colors duration-300 ${isLightMode ? 'text-gray-500' : 'text-gray-400'}`}>
                       {user.followers} followers
                     </p>
@@ -250,6 +425,15 @@ function Search() {
                   'No users in the app yet'
                 )}
               </p>
+            </div>
+          )}
+
+          {/* Load more */}
+          {(hasMoreUsername || hasMoreDisplay) && (
+            <div className="mt-4 text-center">
+              <button onClick={loadMore} disabled={loading} className={`px-4 py-2 rounded-lg ${loading ? 'opacity-50 cursor-not-allowed' : 'bg-indigo-600 text-black hover:bg-indigo-700'}`}>
+                {loading ? 'Loading…' : 'Load more'}
+              </button>
             </div>
           )}
         </div>

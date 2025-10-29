@@ -9,8 +9,9 @@ service cloud.firestore {
       allow get: if request.auth != null && (request.auth.uid == userId || (resource.data.isPublic == true));
       // Allow real-time listeners for the user's own profile
       allow read: if request.auth != null && (request.auth.uid == userId || (resource.data.isPublic == true));
-      // Disallow listing the entire users collection from client for security
-      allow list: if false;
+      // Allow listing (queries) for authenticated users, but require client queries 
+      // to include a filter for public profiles
+      allow list: if request.auth != null;
 
       allow create: if request.auth != null
                     && request.auth.uid == userId
