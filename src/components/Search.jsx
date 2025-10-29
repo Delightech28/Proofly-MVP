@@ -381,10 +381,16 @@ function Search() {
       // ensure we don't try to overwrite an existing follower/following doc (set on existing doc is an update and will be denied by rules)
       const [followerSnap, followingSnap] = await Promise.all([getDoc(followerRef), getDoc(followingRef)]);
       if (followerSnap.exists() || followingSnap.exists()) {
-        console.warn('Already following (or write would overwrite existing doc). Aborting follow to avoid permission errors.', { followerExists: followerSnap.exists(), followingExists: followingSnap.exists() });
-        // ensure UI reflects current state
-        setResults(prev => prev.map(u => u.id === target.id ? { ...u, isFollowing: true } : u));
+        console.warn('Already following (or write would overwrite existing doc). Re-syncing UI to server state.', { followerExists: followerSnap.exists(), followingExists: followingSnap.exists() });
+        // The follower/following docs already exist on the server. Instead of
+        // aborting silently, refresh the UI from the authoritative user docs
+        // we just read (tSnap/mSnap) so the frontend reflects the true counts.
+        const tCountExisting = (tSnap.exists() && typeof tSnap.data().followersCount === 'number') ? tSnap.data().followersCount : 0;
+        const mCountExisting = (mSnap.exists() && typeof mSnap.data().followingCount === 'number') ? mSnap.data().followingCount : 0;
+        setResults(prev => prev.map(u => u.id === target.id ? { ...u, isFollowing: true, followers: tCountExisting } : u));
         setFollowingSet(s => new Set(Array.from(s).concat([target.id])));
+        // If you want to surface my own followingCount in the UI elsewhere,
+        // you can update that state from mCountExisting.
         return;
       }
 
@@ -758,14 +764,7 @@ function Search() {
                   >
                     {user.isFollowing ? 'Unfollow' : 'Follow'}
                   </button>
-                  {import.meta.env && import.meta.env.MODE !== 'production' && (
-                    <button
-                      onClick={() => debugFollowOps(user)}
-                      className="px-3 py-2 rounded-lg bg-red-500 text-white text-xs"
-                    >
-                      DBG
-                    </button>
-                  )}
+                  
                 </div>
               </div>
             ))
