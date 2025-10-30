@@ -46,6 +46,58 @@ function Search() {
     return () => { mounted = false };
   }, [currentUserId]);
 
+  // Function to start or navigate to chat with a user
+  const startChat = async (otherUser) => {
+    if (!currentUserId) return; // Not logged in
+
+    // Create a consistent chat ID for the conversation between these two users
+    const chatId = [currentUserId, otherUser.id].sort().join('_');
+
+    try {
+      console.debug('[startChat] currentUserId, auth.currentUser:', currentUserId, auth.currentUser?.uid);
+      const chatPayloadPreview = {
+        participants: [currentUserId, otherUser.id],
+        participantDetails: {
+          [currentUserId]: { name: auth.currentUser?.displayName, avatar: auth.currentUser?.photoURL },
+          [otherUser.id]: { name: otherUser.name, avatar: otherUser.avatar }
+        }
+      };
+      console.debug('[startChat] chatId/payload preview:', chatId, chatPayloadPreview);
+      // Check if chat already exists
+      const chatRef = doc(db, 'chats', chatId);
+      const chatDoc = await getDoc(chatRef);
+
+      if (!chatDoc.exists()) {
+        // Create new chat document
+        // Ensure we don't pass undefined to Firestore (use null fallback)
+        const currentDetails = {
+          name: auth.currentUser?.displayName || auth.currentUser?.email || null,
+          avatar: auth.currentUser?.photoURL || null
+        };
+        const otherDetails = {
+          name: otherUser?.name || null,
+          avatar: otherUser?.avatar || null
+        };
+
+        await setDoc(chatRef, {
+          participants: [currentUserId, otherUser.id],
+          participantDetails: {
+            [currentUserId]: currentDetails,
+            [otherUser.id]: otherDetails
+          },
+          createdAt: serverTimestamp(),
+          lastMessage: null,
+          lastMessageTime: null
+        });
+      }
+
+      // Navigate to chat view
+      navigate('/chat', { state: { chatId, otherUser } });
+    } catch (error) {
+      console.error('Error creating/accessing chat:', error);
+    }
+  };
+
   // Firestore-backed results & pagination
   const [results, setResults] = useState([])
   const [loading, setLoading] = useState(false)
@@ -748,9 +800,12 @@ function Search() {
                 </div>
                 
                 <div className="flex gap-2">
-                  <button className={`p-2 rounded-full transition-colors duration-300 cursor-pointer ${
-                    isLightMode ? 'hover:bg-gray-100' : 'hover:bg-gray-800'
-                  }`}>
+                  <button 
+                    onClick={() => startChat(user)}
+                    className={`p-2 rounded-full transition-colors duration-300 cursor-pointer ${
+                      isLightMode ? 'hover:bg-gray-100' : 'hover:bg-gray-800'
+                    }`}
+                  >
                     <MessageCircle className="w-5 h-5" />
                   </button>
                   <button

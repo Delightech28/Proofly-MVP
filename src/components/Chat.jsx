@@ -1,299 +1,72 @@
-import { ArrowLeft, Moon, Sun, Send, MoreVertical, Phone, Video, Search, Users, MessageSquare, X, Paperclip, Check, CheckCheck } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { ArrowLeft, Moon, Sun, Users, Send, Search, MessageSquare, Phone, Video, MoreVertical, Check, CheckCheck, X, Paperclip } from "lucide-react";
+import { useNavigate, useLocation } from "react-router-dom";
 import { useState, useRef, useEffect } from "react";
 import { useTheme } from "../contexts/ThemeContext";
+import { db } from '../lib/firebase';
+import {
+  collection,
+  doc,
+  query,
+  where,
+  orderBy,
+  limit,
+  serverTimestamp,
+  addDoc,
+  updateDoc,
+  onSnapshot,
+  writeBatch,
+  increment,
+  getDocs,
+  getDoc
+} from 'firebase/firestore';
+import { getAuth } from 'firebase/auth';
 
 function Chat() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { isLightMode, toggleTheme } = useTheme();
-  const [activeChat, setActiveChat] = useState(0); // Open AI chat by default
-  const [message, setMessage] = useState("");
-  const [searchQuery, setSearchQuery] = useState("");
-  const [showDropdown, setShowDropdown] = useState(false);
-  const [selectedFile, setSelectedFile] = useState(null);
-  const dropdownRef = useRef(null);
-  const fileInputRef = useRef(null);
+  const auth = getAuth();
 
-  const conversations = [
-    {
-      id: 0, // AI Chat - pinned at top
-      user: {
-        id: 0,
-        name: "Proofly AI Assistant",
-        username: "@prooflyai",
-        avatar: null,
-        isOnline: true,
-        lastSeen: "Always online",
-        isAI: true
-      },
-      lastMessage: "Hi! I'm here to help you with tasks, earning tips, and app features. How can I assist you today?",
-      timestamp: "Just now",
-      unreadCount: 0,
-      isTyping: false,
-      isPinned: true
-    },
-    {
-      id: 1,
-      user: {
-        id: 1,
-        name: "Sarah Johnson",
-        username: "@sarahj",
-        avatar: null,
-        isOnline: true,
-        lastSeen: "Online"
-      },
-      lastMessage: "Thanks for the referral! I'm loving the app",
-      timestamp: "2 min ago",
-      unreadCount: 2,
-      isTyping: false
-    },
-    {
-      id: 2,
-      user: {
-        id: 2,
-        name: "Mike Chen",
-        username: "@mikechen",
-        avatar: null,
-        isOnline: false,
-        lastSeen: "2 hours ago"
-      },
-      lastMessage: "How do I complete the daily steps challenge?",
-      timestamp: "1 hour ago",
-      unreadCount: 0,
-      isTyping: false
-    },
-    {
-      id: 3,
-      user: {
-        id: 3,
-        name: "Emma Davis",
-        username: "@emmad",
-        avatar: null,
-        isOnline: true,
-        lastSeen: "Online"
-      },
-      lastMessage: "Great job on the 7-day streak! 🎉",
-      timestamp: "3 hours ago",
-      unreadCount: 1,
-      isTyping: true
-    },
-    {
-      id: 4,
-      user: {
-        id: 4,
-        name: "Alex Rodriguez",
-        username: "@alexr",
-        avatar: null,
-        isOnline: false,
-        lastSeen: "1 day ago"
-      },
-      lastMessage: "Let's collaborate on the referral program",
-      timestamp: "Yesterday",
-      unreadCount: 0,
-      isTyping: false
-    }
-  ];
-
-  const messages = {
-    0: [ // AI Chat messages
+  const [currentUserId, setCurrentUserId] = useState(auth.currentUser?.uid || null);
+  const [activeChat, setActiveChat] = useState(location.state?.chatId || null); // null -> show list
+  const [otherUser, setOtherUser] = useState(location.state?.otherUser || null);
+  const [conversations, setConversations] = useState([]);
+  const [messages, setMessages] = useState({
+    0: [
       {
-        id: 1,
-        senderId: 0, // AI Assistant
-        content: "Welcome to Proofly! I'm your AI assistant here to help you maximize your earnings and complete tasks efficiently.",
-        timestamp: "10:00 AM",
-        isRead: true,
-        isDelivered: true
-      },
-      {
-        id: 2,
-        senderId: 0, // Current user
-        content: "Hi! Can you help me understand how to earn more points?",
-        timestamp: "10:05 AM",
-        isRead: true,
-        isDelivered: true
-      },
-      {
-        id: 3,
-        senderId: 0, // AI Assistant
-        content: "Absolutely! Here are the best ways to earn points:\n\n1. Complete daily tasks (5-15 points each)\n2. Invite friends (10 points per referral)\n3. Maintain streaks (bonus points)\n4. Complete challenges (up to 50 points)\n\nWould you like me to explain any of these in detail?",
-        timestamp: "10:06 AM",
-        isRead: true,
-        isDelivered: true
-      },
-      {
-        id: 4,
-        senderId: 0, // Current user
-        content: "Yes, tell me more about the daily tasks!",
-        timestamp: "10:07 AM",
-        isRead: true,
-        isDelivered: true
-      },
-      {
-        id: 5,
-        senderId: 0, // AI Assistant
-        content: "Great question! Daily tasks are your bread and butter for earning points:\n\n• Morning check-in: 5 points\n• Complete your profile: 10 points\n• Share a post: 8 points\n• Engage with 3 posts: 6 points\n• Invite a friend: 15 points\n\nThese reset every 24 hours, so consistency is key! 💪",
-        timestamp: "10:08 AM",
-        isRead: true,
-        isDelivered: true
-      },
-      {
-        id: 6,
-        senderId: 0, // Current user
-        content: "That's awesome! What about the referral program?",
-        timestamp: "10:10 AM",
-        isRead: true,
-        isDelivered: true
-      },
-      {
-        id: 7,
-        senderId: 0, // AI Assistant
-        content: "The referral program is fantastic! Here's how it works:\n\n🎯 You get 10 points for each friend who joins\n🎯 Your friend gets 5 bonus points when they sign up\n🎯 You both get 20 points when they complete their first task\n🎯 Special bonus: 50 points when you refer 5 friends!\n\nShare your unique link and watch your points grow! 🚀",
-        timestamp: "10:11 AM",
-        isRead: true,
-        isDelivered: true
-      },
-      {
-        id: 8,
-        senderId: 0, // Current user
-        content: "Perfect! I'm going to start with the daily tasks today. Any tips for staying consistent?",
-        timestamp: "10:13 AM",
-        isRead: true,
-        isDelivered: true
-      },
-      {
-        id: 9,
-        senderId: 0, // AI Assistant
-        content: "Excellent mindset! Here are my top tips for consistency:\n\n⏰ Set a daily reminder for the same time each day\n📱 Keep the app easily accessible on your phone\n🎯 Start small - even 5 minutes daily makes a difference\n📊 Track your streak and celebrate milestones\n👥 Join challenges with friends for accountability\n\nRemember: Small consistent actions lead to big rewards! You've got this! 💪✨",
-        timestamp: "10:14 AM",
-        isRead: true,
-        isDelivered: true
-      },
-      {
-        id: 10,
-        senderId: 0, // AI Assistant
-        content: "Hi! I'm here to help you with tasks, earning tips, and app features. How can I assist you today?",
-        timestamp: "Just now",
-        isRead: true,
-        isDelivered: true
-      }
-    ],
-    1: [
-      {
-        id: 1,
-        senderId: 1,
-        content: "Hey! I saw you joined Proofly through my referral link",
-        timestamp: "10:30 AM",
-        isRead: true
-      },
-      {
-        id: 2,
-        senderId: 0, // Current user
-        content: "Welcome to the app! How are you liking it so far?",
-        timestamp: "10:32 AM",
-        isRead: true
-      },
-      {
-        id: 3,
-        senderId: 1,
-        content: "It's amazing! The earning system is so intuitive",
-        timestamp: "10:35 AM",
-        isRead: true
-      },
-      {
-        id: 4,
-        senderId: 1,
-        content: "Thanks for the referral! I'm loving the app",
-        timestamp: "2 min ago",
-        isRead: false
-      }
-    ],
-    2: [
-      {
-        id: 1,
-        senderId: 2,
-        content: "Hi! I'm new to the app and need some help",
-        timestamp: "9:15 AM",
-        isRead: true
-      },
-      {
-        id: 2,
+        id: 'ai-1',
         senderId: 0,
-        content: "Of course! What do you need help with?",
-        timestamp: "9:16 AM",
-        isRead: true
-      },
-      {
-        id: 3,
-        senderId: 2,
-        content: "How do I complete the daily steps challenge?",
-        timestamp: "1 hour ago",
+        content: "Hi! I'm here to help you with tasks, earning tips, and app features. How can I assist you today?",
+        timestamp: new Date().toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }).toLowerCase(),
         isRead: true
       }
     ]
-  };
-
-  const filteredConversations = conversations.filter(conv => {
-    // Always show AI chat at top
-    if (conv.isPinned) return true;
-    
-    // Filter other conversations based on search
-    return conv.user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-           conv.user.username.toLowerCase().includes(searchQuery.toLowerCase());
-  }).sort((a, b) => {
-    // Keep pinned chat at top
-    if (a.isPinned) return -1;
-    if (b.isPinned) return 1;
-    return 0;
   });
-
-  const sendMessage = () => {
-    if (message.trim() && activeChat) {
-      // Here you would typically send the message to your backend
-      console.log('Sending message:', message, 'to chat:', activeChat);
-      setMessage("");
+  
+  // helper to format timestamps to time-only like "4:26 pm" (no seconds, lowercase)
+  const formatTime = (val) => {
+    if (!val) return '';
+    try {
+      let date;
+      // Firestore Timestamp has toDate()
+      if (typeof val.toDate === 'function') date = val.toDate();
+      // Some code returns { seconds, nanoseconds }
+      else if (val.seconds) date = new Date(val.seconds * 1000 + (val.nanoseconds || 0) / 1e6);
+      else date = new Date(val);
+      // Use hour:minute only and lowercase am/pm
+      return date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }).toLowerCase();
+    } catch (e) {
+      return String(val).toLowerCase();
     }
   };
 
-  const handleKeyPress = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      sendMessage();
-    }
-  };
-
-  // Close dropdown when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
-        setShowDropdown(false);
-      }
-    };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, []);
-
-  const handleAudioCall = () => {
-    setShowDropdown(false);
-    navigate('/audio-call', { 
-      state: { 
-        contactName: conversations.find(c => c.id === activeChat)?.user.name,
-        contactId: activeChat
-      } 
-    });
-  };
-
-  const handleVideoCall = () => {
-    setShowDropdown(false);
-    navigate('/video-call', { 
-      state: { 
-        contactName: conversations.find(c => c.id === activeChat)?.user.name,
-        contactId: activeChat
-      } 
-    });
-  };
+  // UI & helper state
+  const [searchQuery, setSearchQuery] = useState("");
+  const [message, setMessage] = useState("");
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [showDropdown, setShowDropdown] = useState(false);
+  const dropdownRef = useRef(null);
+  const fileInputRef = useRef(null);
 
   const handleFileSelect = () => {
     fileInputRef.current?.click();
@@ -307,6 +80,177 @@ function Chat() {
       console.log('File selected:', file.name);
     }
   };
+
+  const handleKeyPress = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  };
+
+  // open a chat and mark unread count for current user as read (set to 0)
+  const openChat = async (chatId) => {
+    setActiveChat(chatId);
+    if (!chatId || chatId === 0) return;
+    if (!currentUserId) return;
+    try {
+      const chatRef = doc(db, 'chats', chatId);
+      // clear unread count for current user
+      await updateDoc(chatRef, { [`unreadCounts.${currentUserId}`]: 0 });
+
+      // mark messages as read for this user (messages sent by others and isRead == false)
+      try {
+        const msgsRef = collection(db, 'chats', chatId, 'messages');
+        const q = query(msgsRef, where('isRead', '==', false), where('senderId', '!=', currentUserId), limit(200));
+        const snap = await getDocs(q);
+        if (!snap.empty) {
+          const batch = writeBatch(db);
+          snap.docs.forEach(d => batch.update(d.ref, { isRead: true }));
+          await batch.commit();
+        }
+      } catch (e) {
+        console.error('openChat mark messages read error', e);
+      }
+    } catch (e) {
+      console.error('openChat update unread error', e);
+    }
+  };
+
+  const sendMessage = async () => {
+    const text = (message || '').trim();
+    if (!text || !activeChat) return;
+
+    if (activeChat === 0) {
+      // local AI handling (simple echo)
+      setMessages(prev => ({ ...prev, 0: [...(prev[0] || []), { id: 'ai-' + Date.now(), senderId: 0, content: text, timestamp: new Date().toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }).toLowerCase(), isRead: true }] }));
+      setMessage('');
+      return;
+    }
+
+    try {
+      const messagesRef = collection(db, 'chats', activeChat, 'messages');
+      // include isDelivered so sender sees delivered state; receiver will see isRead=false
+      const newMsgRef = await addDoc(messagesRef, { content: text, senderId: currentUserId, timestamp: serverTimestamp(), isRead: false, isDelivered: true });
+
+      const chatRef = doc(db, 'chats', activeChat);
+      // update last message/time and increment unreadCounts for other participants
+      // fetch chat doc to get participants
+      // update last message/time
+      await updateDoc(chatRef, { lastMessage: { content: text, senderId: currentUserId }, lastMessageTime: serverTimestamp() });
+
+      // increment unreadCounts for other participants (attempt best-effort)
+      try {
+        // read chat doc to get participants
+        const chatDocSnap = await getDoc(chatRef);
+        const chatData = chatDocSnap.exists() ? chatDocSnap.data() : null;
+        if (chatData?.participants && Array.isArray(chatData.participants)) {
+          const updates = {};
+          chatData.participants.forEach(p => {
+            if (p !== currentUserId) updates[`unreadCounts.${p}`] = increment(1);
+          });
+          if (Object.keys(updates).length) await updateDoc(chatRef, updates);
+        }
+      } catch (e) {
+        // If we can't increment (rules), log and continue
+        console.error('sendMessage increment unreadCounts error', e);
+      }
+      setMessage('');
+    } catch (e) {
+      console.error('sendMessage error', e);
+    }
+  };
+
+  const handleAudioCall = () => {
+    setShowDropdown(false);
+    navigate('/audio-call', { state: { contactName: conversations.find(c => c.id === activeChat)?.user.name, contactId: activeChat } });
+  };
+
+  const handleVideoCall = () => {
+    setShowDropdown(false);
+    navigate('/video-call', { state: { contactName: conversations.find(c => c.id === activeChat)?.user.name, contactId: activeChat } });
+  };
+
+  // Filtered conversations (simple)
+  const filteredConversations = conversations.filter(conv => {
+    if (!searchQuery) return true;
+    const q = searchQuery.toLowerCase();
+    return (conv.user?.name || '').toLowerCase().includes(q) || (conv.user?.username || '').toLowerCase().includes(q);
+  });
+
+  // Active conversation helpers to avoid repeated lookups and guard against undefined
+  const activeConv = conversations.find(c => c.id === activeChat) || null;
+  const activeName = activeConv?.user?.name || otherUser?.name || 'Chat';
+  const activeUser = activeConv?.user || otherUser || null;
+  const activeIsOnline = !!activeConv?.user?.isOnline;
+  const activeLastSeen = activeConv?.user?.lastSeen || otherUser?.lastSeen || null;
+
+  // Real-time messages listener for the active chat
+  useEffect(() => {
+    if (!activeChat) return;
+    if (activeChat === 0) return; // AI chat is local
+
+    const messagesRef = collection(db, 'chats', activeChat, 'messages');
+    const q = query(messagesRef, orderBy('timestamp', 'asc'));
+
+    const unsub = onSnapshot(q, snap => {
+      const ms = snap.docs.map(d => {
+        const data = d.data();
+        const ts = formatTime(data.timestamp);
+        return { id: d.id, ...data, timestamp: ts };
+      });
+      setMessages(prev => ({ ...prev, [activeChat]: ms }));
+    }, err => console.error('messages onSnapshot error', err));
+
+    return () => unsub();
+  }, [activeChat]);
+
+  // auth listener to keep currentUserId up-to-date
+  useEffect(() => {
+    const un = auth.onAuthStateChanged(u => setCurrentUserId(u?.uid || null));
+    return () => un();
+  }, [auth]);
+
+  // Real-time listener: conversations for currentUser
+  useEffect(() => {
+    if (!currentUserId) {
+      setConversations([]);
+      return;
+    }
+
+    const chatsRef = collection(db, 'chats');
+    const q = query(chatsRef, where('participants', 'array-contains', currentUserId), orderBy('lastMessageTime', 'desc'), limit(50));
+
+    const unsub = onSnapshot(q, snap => {
+      const chats = snap.docs.map(d => {
+        const data = d.data();
+        // determine the other participant
+        const otherId = Array.isArray(data.participants) ? data.participants.find(p => p !== currentUserId) : null;
+        const other = data.participantDetails?.[otherId] || { name: 'Unknown', avatar: null };
+        return {
+          id: d.id,
+          user: { id: otherId, name: other.name || 'Unknown', avatar: other.avatar || null, isAI: false },
+          lastMessage: data.lastMessage?.content || '',
+          lastMessageTime: data.lastMessageTime || null,
+          unreadCount: data.unreadCounts?.[currentUserId] || 0,
+          typing: data.typing || {}
+        };
+      });
+
+      // Ensure AI assistant at top
+      const ai = {
+        id: 0,
+        user: { id: 0, name: 'Proofly AI Assistant', username: '@prooflyai', isAI: true },
+        lastMessage: messages[0]?.[messages[0].length - 1]?.content || '',
+        lastMessageTime: null,
+        unreadCount: 0,
+        typing: {}
+      };
+
+      setConversations([ai, ...chats]);
+    }, err => console.error('chats onSnapshot error', err));
+
+    return () => unsub();
+  }, [currentUserId]);
 
   return (
     <div className={`min-h-screen transition-colors duration-300 ${isLightMode ? 'bg-gray-50 text-gray-900' : 'bg-[#0e0e0e] text-white'}`}>
@@ -363,7 +307,7 @@ function Chat() {
               {filteredConversations.map((conversation) => (
                 <div
                   key={conversation.id}
-                  onClick={() => setActiveChat(conversation.id)}
+                  onClick={() => openChat(conversation.id)}
                   className={`flex items-center gap-3 p-4 rounded-xl transition-colors duration-300 cursor-pointer ${
                     isLightMode ? 'bg-white shadow-sm hover:bg-gray-50' : 'bg-[#1c1c1c] hover:bg-[#2a2a2a]'
                   }`}
@@ -449,23 +393,28 @@ function Chat() {
               </button>
               
               <div className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors duration-300 ${
-                conversations.find(c => c.id === activeChat)?.user.isAI 
+                activeUser?.isAI 
                   ? 'bg-gradient-to-br from-purple-500 to-blue-500' 
                   : (isLightMode ? 'bg-gray-100' : 'bg-[#2a2a2a]')
               }`}>
-                {conversations.find(c => c.id === activeChat)?.user.isAI ? (
+                {activeUser?.isAI ? (
                   <span className="text-white font-bold text-sm">AI</span>
+                ) : activeUser?.avatar ? (
+                  <img src={activeUser.avatar} alt={activeUser.name || 'avatar'} className="w-10 h-10 rounded-full object-cover" />
                 ) : (
                   <Users className="w-5 h-5 text-indigo-600" />
                 )}
               </div>
               
               <div>
-                <h3 className="font-semibold text-sm">
-                  {conversations.find(c => c.id === activeChat)?.user.name}
+                <h3 className="font-semibold text-sm flex items-center gap-2">
+                  <span>{activeName}</span>
+                  {activeConv?.unreadCount > 0 && (
+                    <span className="bg-indigo-600 text-white text-xs font-medium px-2 py-0.5 rounded-full">{activeConv.unreadCount}</span>
+                  )}
                 </h3>
                 <p className={`text-xs transition-colors duration-300 ${isLightMode ? 'text-gray-500' : 'text-gray-400'}`}>
-                  {conversations.find(c => c.id === activeChat)?.user.isOnline ? 'Online' : 'Last seen ' + conversations.find(c => c.id === activeChat)?.user.lastSeen}
+                  {activeIsOnline ? 'Online' : (activeLastSeen ? 'Last seen ' + activeLastSeen : 'Last seen: unknown')}
                 </p>
               </div>
             </div>
@@ -535,36 +484,40 @@ function Chat() {
 
           {/* Messages */}
           <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4 pb-4">
-            {messages[activeChat]?.map((msg) => (
-              <div
-                key={msg.id}
-                className={`flex ${msg.senderId === 0 ? 'justify-end' : 'justify-start'}`}
-              >
-                <div className={`max-w-[80%] px-4 py-2 rounded-2xl ${
-                  msg.senderId === 0
-                    ? 'bg-indigo-600 text-white'
-                      : (isLightMode ? 'bg-gray-200 text-gray-900' : 'bg-[#2a2a2a] text-white')
-                }`}>
-                  <p className="text-sm">{msg.content}</p>
-                  <div className={`flex items-center justify-between mt-1 ${
-                    msg.senderId === 0 ? 'text-indigo-100' : (isLightMode ? 'text-gray-500' : 'text-gray-400')
+            {messages[activeChat]?.map((msg) => {
+              const senderIdStr = String(msg.senderId ?? '');
+              const meIdStr = String(currentUserId ?? '');
+              const isAI = senderIdStr === '0';
+              const isMine = !isAI && senderIdStr === meIdStr;
+
+              return (
+                <div key={msg.id} className={`flex ${isMine ? 'justify-end' : 'justify-start'}`}>
+                  <div className={`max-w-[80%] px-4 py-2 rounded-2xl ${
+                    isMine ? 'ml-auto bg-indigo-600 text-white' : (isLightMode ? 'bg-gray-200 text-gray-900' : 'bg-[#2a2a2a] text-white')
                   }`}>
-                    <p className="text-xs">{msg.timestamp}</p>
-                    {msg.senderId === 0 && (
-                      <div className="flex items-center">
-                        {msg.isRead ? (
-                          <CheckCheck className="w-3 h-3 text-blue-300" />
-                        ) : msg.isDelivered ? (
-                          <Check className="w-3 h-3" />
-                        ) : (
-                          <div className="w-3 h-3 rounded-full border border-current"></div>
-                        )}
+                    <p className="text-sm">{msg.content}</p>
+                    {isMine ? (
+                      <div className="flex items-center justify-end mt-1 text-xs text-indigo-100">
+                        <p className="text-xs mr-2">{msg.timestamp}</p>
+                        <div className="flex items-center space-x-1">
+                          {msg.isRead === true ? (
+                            <CheckCheck className="w-3 h-3 text-blue-300" />
+                          ) : msg.isDelivered === true ? (
+                            <Check className="w-3 h-3 text-indigo-100" />
+                          ) : (
+                            <div className="w-3 h-3 rounded-full border border-current"></div>
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className={`flex items-center mt-1 ${isLightMode ? 'text-gray-500' : 'text-gray-400'}`}>
+                        <p className="text-xs">{msg.timestamp}</p>
                       </div>
                     )}
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           {/* Message Input - Fixed at bottom */}

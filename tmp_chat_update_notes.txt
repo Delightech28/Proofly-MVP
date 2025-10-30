@@ -1,0 +1,7 @@
+Planned changes to Chat.jsx:
+- Update `conversations` entries for users Sarah, Mike, Emma, Alex to match user-provided real data (timestamps, lastMessage, unreadCount, isTyping).
+- Update `messages` object entries for conversation IDs 1-4 to ensure their message arrays include the listed messages with matching timestamps.
+- Keep AI assistant (id 0) messages instant; keep AI pinned.
+- No UI structure changes beyond data updates.
+
+Will apply as direct edit to src/components/Chat.jsx.
