@@ -1,6 +1,6 @@
 import { ArrowLeft, Moon, Sun, Users, Send, Search, MessageSquare, Phone, Video, MoreVertical, Check, CheckCheck, X, Paperclip } from "lucide-react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { useTheme } from "../contexts/ThemeContext";
 import { db } from '../lib/firebase';
 import {
@@ -67,6 +67,30 @@ function Chat() {
   const [showDropdown, setShowDropdown] = useState(false);
   const dropdownRef = useRef(null);
   const fileInputRef = useRef(null);
+  const typingTimeoutRef = useRef(null);
+  
+  // Update typing status in Firestore (debounced)
+  const updateTyping = async (isTyping) => {
+    if (!currentUserId || !activeChat || activeChat === 0) return;
+    try {
+      const chatRef = doc(db, 'chats', activeChat);
+      await updateDoc(chatRef, {
+        [`typing.${currentUserId}`]: isTyping ? serverTimestamp() : null
+      });
+    } catch (e) {
+      console.error('updateTyping error', e);
+    }
+  };
+
+  // Clear typing indicator when component unmounts or chat changes
+  useEffect(() => {
+    return () => {
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+      }
+      updateTyping(false);
+    };
+  }, [activeChat]);
 
   const handleFileSelect = () => {
     fileInputRef.current?.click();
@@ -86,6 +110,24 @@ function Chat() {
       e.preventDefault();
       sendMessage();
     }
+  };
+
+  // Handle typing state with debounce
+  const handleMessageChange = (e) => {
+    setMessage(e.target.value);
+    
+    // Clear any existing timeout
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+    }
+    
+    // Set typing true immediately
+    updateTyping(true);
+    
+    // Clear typing after 2.5s of no input
+    typingTimeoutRef.current = setTimeout(() => {
+      updateTyping(false);
+    }, 2500);
   };
 
   // open a chat and mark unread count for current user as read (set to 0)
@@ -192,6 +234,16 @@ function Chat() {
   const activeUser = activeConv?.user || otherUser || null;
   const activeIsOnline = !!activeConv?.user?.isOnline;
   const activeLastSeen = activeConv?.user?.lastSeen || otherUser?.lastSeen || null;
+  
+  // Check if active user is typing (within last 5 seconds)
+  const isActiveUserTyping = useCallback(() => {
+    if (!activeChat || !activeConv?.typing) return false;
+    const typingTimestamp = activeConv.typing[activeUser?.id];
+    if (!typingTimestamp?.seconds) return false;
+    const now = Date.now();
+    const typingTime = typingTimestamp.seconds * 1000;
+    return now - typingTime < 5000; // typing within last 5 seconds
+  }, [activeChat, activeConv?.typing, activeUser?.id]);
 
   // Real-time messages listener for the active chat
   useEffect(() => {
@@ -350,7 +402,7 @@ function Chat() {
                     <div className="flex items-center justify-between">
                       <h3 className="font-semibold text-sm truncate">{conversation.user.name}</h3>
                       <div className="flex items-center gap-2">
-                        {conversation.isTyping && (
+                        {conversation.typing?.[conversation.user.id] && (
                           <span className="text-xs text-indigo-600">typing...</span>
                         )}
                         <span className={`text-xs transition-colors duration-300 ${isLightMode ? 'text-gray-500' : 'text-gray-400'}`}>
@@ -421,6 +473,9 @@ function Chat() {
               <div>
                 <h3 className="font-semibold text-sm flex items-center gap-2">
                   <span>{activeName}</span>
+                  {isActiveUserTyping() && (
+                    <span className="text-xs text-indigo-600 animate-pulse">typing...</span>
+                  )}
                   {activeConv?.unreadCount > 0 && (
                     <span className="bg-indigo-600 text-white text-xs font-medium px-2 py-0.5 rounded-full">{activeConv.unreadCount}</span>
                   )}
@@ -576,7 +631,7 @@ function Chat() {
               <div className="flex-1 relative">
                 <textarea
                   value={message}
-                  onChange={(e) => setMessage(e.target.value)}
+                  onChange={handleMessageChange}
                   onKeyPress={handleKeyPress}
                   placeholder="Type a message..."
                   rows={1}
