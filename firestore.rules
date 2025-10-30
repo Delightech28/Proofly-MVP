@@ -163,8 +163,9 @@ service cloud.firestore {
         allow get, list: if request.auth != null
                          && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
 
-        // allow updates to message only by original sender (e.g., mark read/delivered)
-        allow update: if request.auth != null && request.auth.uid == resource.data.senderId;
+        // allow participants to update messages (for marking as read/delivered)
+        allow update: if request.auth != null 
+                     && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
 
         allow delete: if false;
       }

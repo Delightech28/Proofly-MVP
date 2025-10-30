@@ -90,6 +90,7 @@ function Chat() {
 
   // open a chat and mark unread count for current user as read (set to 0)
   const openChat = async (chatId) => {
+    console.debug('Opening chat:', { chatId, currentUserId });
     setActiveChat(chatId);
     if (!chatId || chatId === 0) return;
     if (!currentUserId) return;
@@ -101,15 +102,23 @@ function Chat() {
       // mark messages as read for this user (messages sent by others and isRead == false)
       try {
         const msgsRef = collection(db, 'chats', chatId, 'messages');
-        const q = query(msgsRef, where('isRead', '==', false), where('senderId', '!=', currentUserId), limit(200));
+        const q = query(msgsRef, where('isRead', '==', false), where('senderId', '!=', currentUserId));
+        console.debug('Fetching unread messages to mark as read', { chatId, currentUserId });
         const snap = await getDocs(q);
+        console.debug('Found unread messages:', snap.size);
+        
         if (!snap.empty) {
           const batch = writeBatch(db);
-          snap.docs.forEach(d => batch.update(d.ref, { isRead: true }));
+          snap.docs.forEach(d => {
+            console.debug('Marking message as read:', d.id, d.data());
+            batch.update(d.ref, { isRead: true });
+          });
           await batch.commit();
+          console.debug('Batch update completed - messages marked as read');
         }
       } catch (e) {
         console.error('openChat mark messages read error', e);
+        console.error(e); // Log the full error
       }
     } catch (e) {
       console.error('openChat update unread error', e);
@@ -198,6 +207,9 @@ function Chat() {
         const ts = formatTime(data.timestamp);
         return { id: d.id, ...data, timestamp: ts };
       });
+      console.debug('Messages snapshot updated:', ms.length, 'messages. Sample read states:', 
+        ms.slice(-3).map(m => ({ id: m.id, isRead: m.isRead, isDelivered: m.isDelivered }))
+      );
       setMessages(prev => ({ ...prev, [activeChat]: ms }));
     }, err => console.error('messages onSnapshot error', err));
 
